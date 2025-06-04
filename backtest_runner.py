@@ -10,6 +10,16 @@ from pathlib import Path
 
 from utils.config import settings
 from utils.logger import logger
+import logging
+
+backtest_logger = logging.getLogger("algobot.backtest")
+backtest_logger.setLevel(logging.INFO)
+if not backtest_logger.handlers:
+    Path("logs").mkdir(exist_ok=True)
+    handler = logging.FileHandler("logs/backtest.log")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+    backtest_logger.addHandler(handler)
+    backtest_logger.propagate = False
 from utils.portfolio import Portfolio
 from utils.risk import RiskManager
 from strategies.momentum_optimized import MomentumStrategy
@@ -33,11 +43,13 @@ class BacktestRunner:
         }
         
         logger.info(f"✅ BacktestRunner initialized with ${initial_capital} capital")
+        backtest_logger.info(f"INIT capital=${initial_capital}")
     
     async def run_backtest(self, df: pd.DataFrame) -> Dict[str, Any]:
         """Run backtest on historical data"""
         logger.info(f"🚀 Starting backtest with {len(df)} data points")
         logger.info(f"📊 Data range: {df.index[0]} to {df.index[-1]}")
+        backtest_logger.info(f"START {len(df)} bars {df.index[0]} to {df.index[-1]}")
         
         try:
             for i, (timestamp, row) in enumerate(df.iterrows()):
@@ -73,6 +85,7 @@ class BacktestRunner:
                 if i % 500 == 0:
                     progress = (i / len(df)) * 100
                     logger.info(f"📊 Backtest progress: {progress:.1f}% ({i}/{len(df)})")
+                    backtest_logger.info(f"PROGRESS {progress:.1f}% {i}/{len(df)}")
             
             # Calculate final results
             final_price = df['close'].iloc[-1]
@@ -97,14 +110,19 @@ class BacktestRunner:
             }
             
             logger.info(f"✅ Backtest completed: {total_return*100:.2f}% return, {total_trades} trades")
+            backtest_logger.info(
+                f"DONE return={total_return*100:.2f}% trades={total_trades} win_rate={win_rate*100:.1f}%"
+            )
             
             return self.results
             
         except KeyboardInterrupt:
             logger.info("🛑 Backtest interrupted by user")
+            backtest_logger.info("INTERRUPTED")
             raise
         except Exception as e:
             logger.error(f"Backtest error: {e}")
+            backtest_logger.error(f"ERROR {e}")
             raise
 
 def parse_arguments():
@@ -148,6 +166,9 @@ async def run_test():
         logger.info(f"   Strategy: {args.strategy}")
         logger.info(f"   Initial Capital: ${args.initial_capital}")
         logger.info(f"   Data File: {args.data_file}")
+        backtest_logger.info(
+            f"CONFIG symbol={args.symbol} timeframe={args.timeframe} start={args.start_date} end={args.end_date} capital={args.initial_capital}"
+        )
         
         # Check if data file exists
         data_path = Path(args.data_file)
@@ -162,16 +183,20 @@ async def run_test():
             ]
             
             logger.info("🔍 Looking for alternative data files:")
+            backtest_logger.info("MISSING_DATA looking for alternatives")
             for alt_file in alternative_files:
                 alt_path = Path(alt_file)
                 logger.info(f"   Checking: {alt_file} - {'✅ Found' if alt_path.exists() else '❌ Not found'}")
+                backtest_logger.info(f"CHECK {alt_file} {'found' if alt_path.exists() else 'not_found'}")
                 if alt_path.exists():
                     logger.info(f"✅ Using alternative file: {alt_file}")
+                    backtest_logger.info(f"USING {alt_file}")
                     data_path = alt_path
                     break
             else:
                 logger.error("❌ No data files found. Please run data downloader first:")
                 logger.error(f"   python data_downloader.py --symbol {args.symbol} --timeframe {args.timeframe} --startdate {args.start_date} --enddate {args.end_date}")
+                backtest_logger.info("NO_DATA_ABORT")
                 logger.info("\n📁 Expected file location:")
                 expected_file = f"historical_data/{args.symbol.replace('/', '')}_{args.timeframe}_{args.start_date.replace('-', '')}_{args.end_date.replace('-', '')}.csv"
                 logger.info(f"   {expected_file}")
@@ -201,6 +226,7 @@ async def run_test():
             return
         
         logger.info(f"📊 Loaded {len(df)} data points from {df.index[0]} to {df.index[-1]}")
+        backtest_logger.info(f"DATA_LOADED rows={len(df)}")
         
         # Update settings for backtest
         settings.SYMBOL = args.symbol
@@ -257,11 +283,14 @@ async def run_test():
                 f.write(f"Trade {i:3d}: {trade['profit_usd']:+7.2f} USD ({trade['profit_pct']*100:+6.2f}%) - {trade['exit_reason']}\n")
         
         logger.info(f"📋 Detailed results saved to: {results_file}")
+        backtest_logger.info(f"RESULTS_SAVED {results_file}")
         
     except KeyboardInterrupt:
         logger.info("🛑 Backtest interrupted by user")
+        backtest_logger.info("INTERRUPTED")
     except Exception as e:
         logger.error(f"Backtest failed: {e}")
+        backtest_logger.error(f"ERROR {e}")
         raise
 
 def main():
