@@ -4,9 +4,9 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 import time
 import os
-from typing import List, Optional, Tuple, Any # Tuple ve Any zaten vardı veya gerekebilir
+from typing import List, Optional, Tuple, Any
 from pathlib import Path
-from argparse import ArgumentParser # Komut satırı argümanları için
+from argparse import ArgumentParser
 
 # config ve logger importları (settings'den varsayılanlar alınacak)
 try:
@@ -24,6 +24,25 @@ API_LIMIT = 1000
 # API istekleri arası varsayılan bekleme süresi (saniye)
 DEFAULT_REQUEST_DELAY = 0.2 # 1m gibi daha uzun periyotlar için 0.1-0.2s yeterli olabilir.
                              # "5s" gibi çok kısa periyotlarda daha dikkatli olunmalı.
+
+def parse_arguments():
+    """Parse command line arguments for data downloader"""
+    parser = ArgumentParser(description="AlgoBot Historical Data Downloader")
+    
+    parser.add_argument("--symbol", type=str, default="BTC/USDT",
+                       help="Trading symbol (default: BTC/USDT)")
+    parser.add_argument("--timeframe", type=str, default="15m",
+                       help="Timeframe (1m, 5m, 15m, 1h, 4h, 1d) (default: 15m)")
+    parser.add_argument("--startdate", type=str, 
+                       help="Start date (YYYY-MM-DD format)")
+    parser.add_argument("--enddate", type=str,
+                       help="End date (YYYY-MM-DD format)")
+    parser.add_argument("--outputdir", type=str, default="historical_data",
+                       help="Output directory (default: historical_data)")
+    parser.add_argument("--delay", type=float, default=DEFAULT_REQUEST_DELAY,
+                       help=f"Delay between API requests in seconds (default: {DEFAULT_REQUEST_DELAY})")
+    
+    return parser.parse_args()
 
 def parse_date_argument(date_str: Optional[str], default_date: datetime) -> datetime:
     """Verilen string tarihi parse eder, hata durumunda veya None ise default_date döner."""
@@ -189,6 +208,14 @@ def main():
             logger.error(f"Başlangıç tarihi ({start_date_obj}) bitiş tarihinden ({end_date_obj}) sonra veya eşit olamaz.")
             return
 
+        logger.info(f"📊 Data Download Configuration:")
+        logger.info(f"   Symbol: {args.symbol}")
+        logger.info(f"   Timeframe: {args.timeframe}")
+        logger.info(f"   Start Date: {start_date_obj.strftime('%Y-%m-%d')}")
+        logger.info(f"   End Date: {end_date_obj.strftime('%Y-%m-%d')}")
+        logger.info(f"   Output Directory: {args.outputdir}")
+        logger.info(f"   API Delay: {args.delay}s")
+
         # Veriyi indir
         candles_data = download_historical_data(
             args.symbol, 
@@ -200,16 +227,23 @@ def main():
         
         # Veriyi kaydet
         if candles_data:
-            save_data_to_csv(
+            saved_path = save_data_to_csv(
                 candles_data, 
                 args.symbol, 
                 args.timeframe, 
-                start_date_obj, # Dosya adı için orijinal başlangıç ve bitiş kullanılır
+                start_date_obj, 
                 end_date_obj, 
                 args.outputdir
             )
+            if saved_path:
+                logger.info(f"🎉 Data successfully downloaded and saved!")
+                logger.info(f"📁 File: {saved_path}")
+                logger.info(f"📊 Records: {len(candles_data):,}")
         else:
             logger.warning("Hiçbir veri indirilmedi veya kaydedilecek veri yok.")
+            
+    except KeyboardInterrupt:
+        logger.info("🛑 Data download interrupted by user")
     except Exception as e:
         logger.error(f"Beklenmedik bir hata oluştu: {e}", exc_info=True)
 
