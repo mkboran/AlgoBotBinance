@@ -40,7 +40,7 @@ if %ERRORLEVEL% EQU 0 (
     echo.
     echo ❌ Push işlemi başarısız oldu!
     echo 💡 Olası nedenler:
-    echo    - GitHub repository henüz oluşturulmamış
+    echo    - GitHub repository henüz oluşturulmamış (Repository adı: AlgoBotBinance)
     echo    - Yanlış kullanıcı adı: %github_username%
     echo    - Authentication gerekli (GitHub login)
     echo.

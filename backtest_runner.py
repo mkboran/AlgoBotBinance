@@ -133,6 +133,10 @@ async def run_test():
     try:
         args = parse_arguments()
         
+        # Create necessary directories
+        Path("historical_data").mkdir(exist_ok=True)
+        Path("logs").mkdir(exist_ok=True)
+        
         # Log dosyalarını hazırla
         from utils.logger import ensure_csv_header
         ensure_csv_header(settings.TRADES_CSV_LOG_PATH)
@@ -166,8 +170,11 @@ async def run_test():
                     data_path = alt_path
                     break
             else:
-                logger.error("❌ No data files found. Please run data_downloader.py first:")
+                logger.error("❌ No data files found. Please run data downloader first:")
                 logger.error(f"   python data_downloader.py --symbol {args.symbol} --timeframe {args.timeframe} --startdate {args.start_date} --enddate {args.end_date}")
+                logger.info("\n📁 Expected file location:")
+                expected_file = f"historical_data/{args.symbol.replace('/', '')}_{args.timeframe}_{args.start_date.replace('-', '')}_{args.end_date.replace('-', '')}.csv"
+                logger.info(f"   {expected_file}")
                 return
         
         # Load and prepare data

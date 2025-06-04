@@ -163,78 +163,55 @@ def save_data_to_csv(
         return None
 
 def main():
-    parser = ArgumentParser(description="Binance Tarihsel OHLCV Veri İndirici")
-    parser.add_argument(
-        "--symbol", 
-        type=str, 
-        default=settings.SYMBOL, 
-        help=f"İndirilecek sembol (varsayılan: {settings.SYMBOL})"
-    )
-    parser.add_argument(
-        "--timeframe", 
-        type=str, 
-        default=settings.TIMEFRAME, 
-        help=f"Zaman dilimi (örn: 1m, 5m, 1h, 1d; varsayılan: {settings.TIMEFRAME})"
-    )
-    parser.add_argument(
-        "--startdate", 
-        type=str, 
-        help="Başlangıç tarihi (YYYY-AA-GG formatında). Varsayılan: 30 gün öncesi."
-    )
-    parser.add_argument(
-        "--enddate", 
-        type=str, 
-        help="Bitiş tarihi (YYYY-AA-GG formatında). Varsayılan: Bugün."
-    )
-    parser.add_argument(
-        "--outputdir", 
-        type=str, 
-        default="historical_data", 
-        help="Verilerin kaydedileceği dizin (varsayılan: historical_data)"
-    )
-    parser.add_argument(
-        "--delay",
-        type=float,
-        default=DEFAULT_REQUEST_DELAY,
-        help=f"API istekleri arası bekleme süresi (saniye, varsayılan: {DEFAULT_REQUEST_DELAY})"
-    )
-    args = parser.parse_args()
+    """Main entry point"""
+    try:
+        args = parse_arguments()
+        
+        # Create historical_data directory if it doesn't exist
+        data_dir = Path("historical_data")
+        data_dir.mkdir(exist_ok=True)
+        
+        # Log klasörünü de oluştur
+        logs_dir = Path("logs")
+        logs_dir.mkdir(exist_ok=True)
+        
+        # Tarih aralığını belirle
+        # Bitiş tarihi, gün sonunu (23:59:59) temsil etmesi için ayarlanabilir veya olduğu gibi bırakılabilir.
+        # ccxt 'since' parametresini başlangıç olarak alır, o bar dahil.
+        default_end_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) # Bugünün başlangıcı
+        default_start_date = default_end_date - timedelta(days=30)
 
-    # Tarih aralığını belirle
-    # Bitiş tarihi, gün sonunu (23:59:59) temsil etmesi için ayarlanabilir veya olduğu gibi bırakılabilir.
-    # ccxt 'since' parametresini başlangıç olarak alır, o bar dahil.
-    default_end_date = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) # Bugünün başlangıcı
-    default_start_date = default_end_date - timedelta(days=30)
+        start_date_obj = parse_date_argument(args.startdate, default_start_date)
+        end_date_obj = parse_date_argument(args.enddate, default_end_date)
 
-    start_date_obj = parse_date_argument(args.startdate, default_start_date)
-    end_date_obj = parse_date_argument(args.enddate, default_end_date)
+        # Bitiş tarihinin başlangıç tarihinden sonra olduğundan emin ol
+        if start_date_obj >= end_date_obj:
+            logger.error(f"Başlangıç tarihi ({start_date_obj}) bitiş tarihinden ({end_date_obj}) sonra veya eşit olamaz.")
+            return
 
-    # Bitiş tarihinin başlangıç tarihinden sonra olduğundan emin ol
-    if start_date_obj >= end_date_obj:
-        logger.error(f"Başlangıç tarihi ({start_date_obj}) bitiş tarihinden ({end_date_obj}) sonra veya eşit olamaz.")
-        return
-
-    # Veriyi indir
-    candles_data = download_historical_data(
-        args.symbol, 
-        args.timeframe, 
-        start_date_obj, 
-        end_date_obj,
-        args.delay
-    )
-    
-    # Veriyi kaydet
-    if candles_data:
-        save_data_to_csv(
-            candles_data, 
+        # Veriyi indir
+        candles_data = download_historical_data(
             args.symbol, 
             args.timeframe, 
-            start_date_obj, # Dosya adı için orijinal başlangıç ve bitiş kullanılır
-            end_date_obj, 
-            args.outputdir
+            start_date_obj, 
+            end_date_obj,
+            args.delay
         )
-    else:
-        logger.warning("Hiçbir veri indirilmedi veya kaydedilecek veri yok.")
+        
+        # Veriyi kaydet
+        if candles_data:
+            save_data_to_csv(
+                candles_data, 
+                args.symbol, 
+                args.timeframe, 
+                start_date_obj, # Dosya adı için orijinal başlangıç ve bitiş kullanılır
+                end_date_obj, 
+                args.outputdir
+            )
+        else:
+            logger.warning("Hiçbir veri indirilmedi veya kaydedilecek veri yok.")
+    except Exception as e:
+        logger.error(f"Beklenmedik bir hata oluştu: {e}", exc_info=True)
 
 if __name__ == "__main__":
     main()

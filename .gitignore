@@ -23,11 +23,11 @@ wheels/
 .installed.cfg
 *.egg
 
-# Logs and Data
+# Logs and Data - UPDATED
 logs/
 *.log
-historical_data/
 temp/
+# historical_data/ - REMOVED, now we keep this folder structure
 
 # Config Files
 config.json
@@ -49,3 +49,9 @@ Thumbs.db
 backtest_results_*.txt
 *.png
 *.jpg
+
+# Data Files - Keep structure but ignore large CSV files
+historical_data/*.csv
+historical_data/**/*.csv
+!historical_data/.gitkeep
+!historical_data/README.md
