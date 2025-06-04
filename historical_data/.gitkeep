@@ -1,2 +1,0 @@
-# This file ensures the historical_data directory is tracked by Git
-# while actual CSV data files are ignored for size reasons
