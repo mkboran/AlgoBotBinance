@@ -1,0 +1,37 @@
+# Sanal ortam klasörü
+venv/
+.venv/
+
+# Python cache dosyaları
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE ve proje ayar dosyaları
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# İşletim sistemi özel dosyaları
+.DS_Store
+Thumbs.db
+
+# Test ve coverage raporları
+.pytest_cache/
+.coverage
+htmlcov/
+pytestdebug.log
+
+# Yerel log dosyaları (imaja dahil edilmemeli)
+logs/*.log
+logs/*.csv
+logs/*.jsonl
+
+# Hassas bilgiler içeren .env dosyası
+.env
+
+# Git klasörü
+.git/
+.gitignore
