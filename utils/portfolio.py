@@ -6,6 +6,7 @@ from pathlib import Path
 
 from utils.logger import logger
 from utils.config import settings
+import logging
 
 class Position:
     """Bir trading pozisyonunu temsil eden sınıf"""
@@ -332,7 +333,13 @@ class Portfolio:
             with open(csv_path, 'a', encoding='utf-8', newline='') as f:
                 f.write(log_entry)
                 f.flush()
-                
+
+            # Also log to backtest logger if configured
+            import logging
+            backtest_logger = logging.getLogger("algobot.backtest")
+            if backtest_logger.handlers:
+                backtest_logger.info(log_entry.strip())
+
         except Exception as e:
             logger.error(f"Trade logging error: {e}")
             # Fallback to simple logging
