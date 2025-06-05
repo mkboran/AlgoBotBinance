@@ -5,10 +5,22 @@ import asyncio
 from pathlib import Path
 from datetime import datetime, timezone
 import sys
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from utils.config import settings
 from utils.logger import logger
+import logging
+
+# Backtest-specific logger
+backtest_logger = logging.getLogger("algobot.backtest")
+backtest_logger.setLevel(logging.INFO)
+if not backtest_logger.handlers:
+    Path("logs").mkdir(exist_ok=True)
+    handler = logging.FileHandler("logs/backtest.log")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+    backtest_logger.addHandler(handler)
+    backtest_logger.propagate = False
+
 from utils.portfolio import Portfolio
 from strategies.momentum_optimized import MomentumStrategy
 
@@ -27,6 +39,9 @@ class MomentumBacktester:
         self.start_time = None
         self.last_progress_log = 0
         
+        logger.info(f"✅ BacktestRunner initialized with ${initial_capital} capital")
+        backtest_logger.info(f"INIT capital=${initial_capital}")
+    
     def load_data(self) -> pd.DataFrame:
         """Load historical data from CSV"""
         logger.info(f"📊 Loading data from {self.csv_path}")
@@ -47,6 +62,7 @@ class MomentumBacktester:
         """Run the momentum-only backtest"""
         logger.info("🚀 Starting Momentum-Only Backtest")
         logger.info(f"💰 Initial Capital: ${self.initial_capital:,.2f} USDT")
+        backtest_logger.info(f"START capital=${self.initial_capital}")
         
         # Load data
         df = self.load_data()
@@ -86,10 +102,12 @@ class MomentumBacktester:
             
         except KeyboardInterrupt:
             logger.info("🛑 Backtest interrupted by user")
+            backtest_logger.info("INTERRUPTED")
             final_price = df.iloc[self.processed_bars + lookback_window - 1]['close'] if self.processed_bars > 0 else df.iloc[-1]['close']
             return await self._generate_final_report(final_price)
         except Exception as e:
             logger.error(f"❌ Backtest error: {e}")
+            backtest_logger.error(f"ERROR {e}")
             raise
     
     async def _log_progress(self, current_time: datetime, current_price: float):
@@ -147,6 +165,7 @@ class MomentumBacktester:
             # Hold times
             hold_times = [t.get("hold_minutes", 0) for t in trades]
             avg_hold_time = sum(hold_times) / len(hold_times)
+        
         else:
             win_rate = profit_factor = avg_win = avg_loss = max_win = max_loss = avg_hold_time = 0
             win_count = loss_count = 0
@@ -249,8 +268,10 @@ async def main():
         
     except KeyboardInterrupt:
         logger.info("🛑 Backtest interrupted by user")
+        backtest_logger.info("INTERRUPTED")
     except Exception as e:
         logger.error(f"❌ Backtest failed: {e}")
+        backtest_logger.error(f"ERROR {e}")
 
 if __name__ == "__main__":
     asyncio.run(main())
