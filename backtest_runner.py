@@ -1,272 +1,256 @@
-# backtest_runner.py - Enhanced Backtest System with CLI Arguments
+# backtest_runner.py - Enhanced Momentum-Only Backtest
 
 import pandas as pd
-import numpy as np
 import asyncio
-import argparse
-from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
 from pathlib import Path
+from datetime import datetime, timezone
+import sys
+from typing import Optional
 
 from utils.config import settings
 from utils.logger import logger
 from utils.portfolio import Portfolio
-from utils.risk import RiskManager
 from strategies.momentum_optimized import MomentumStrategy
 
-class BacktestRunner:
-    """🔬 Enhanced Backtest System"""
+class MomentumBacktester:
+    """🚀 Momentum-Only Backtest Runner"""
     
-    def __init__(self, initial_capital: float = 1000):
-        self.portfolio = Portfolio(initial_capital)
-        self.risk_manager = RiskManager()
-        self.strategies = [
-            MomentumStrategy(portfolio=self.portfolio, symbol=settings.SYMBOL)
-        ]
+    def __init__(self, csv_path: str, initial_capital: float = 1000.0):
+        self.csv_path = Path(csv_path)
+        self.initial_capital = initial_capital
+        self.portfolio = Portfolio(initial_capital_usdt=initial_capital)
+        self.strategy = MomentumStrategy(portfolio=self.portfolio, symbol="BTC/USDT")
         
-        # Backtest metrics
-        self.trade_count = 0
-        self.results = {
-            "trades": [],
-            "portfolio_history": [],
-            "performance_metrics": {}
-        }
+        # Performance tracking
+        self.total_bars = 0
+        self.processed_bars = 0
+        self.start_time = None
+        self.last_progress_log = 0
         
-        logger.info(f"✅ BacktestRunner initialized with ${initial_capital} capital")
-    
-    async def run_backtest(self, df: pd.DataFrame) -> Dict[str, Any]:
-        """Run backtest on historical data"""
-        logger.info(f"🚀 Starting backtest with {len(df)} data points")
-        logger.info(f"📊 Data range: {df.index[0]} to {df.index[-1]}")
+    def load_data(self) -> pd.DataFrame:
+        """Load historical data from CSV"""
+        logger.info(f"📊 Loading data from {self.csv_path}")
         
         try:
-            for i, (timestamp, row) in enumerate(df.iterrows()):
-                # Create current data slice
-                current_data = df.iloc[:i+1].copy()
-                
-                if len(current_data) < 50:  # Need minimum data for indicators
-                    continue
-                
-                current_price = row['close']
-                
-                # Set current time for strategies
-                for strategy in self.strategies:
-                    strategy._current_backtest_time = timestamp
-                
-                # Process each strategy
-                for strategy in self.strategies:
-                    try:
-                        await strategy.process_data(current_data)
-                    except Exception as e:
-                        logger.error(f"Strategy {strategy.strategy_name} error at {timestamp}: {e}")
-                
-                # Record portfolio state
-                portfolio_value = self.portfolio.get_total_portfolio_value_usdt(current_price)
-                self.results["portfolio_history"].append({
-                    "timestamp": timestamp,
-                    "portfolio_value": portfolio_value,
-                    "price": current_price,
-                    "positions": len(self.portfolio.positions)
-                })
-                
-                # Progress logging
-                if i % 500 == 0:
-                    progress = (i / len(df)) * 100
-                    logger.info(f"📊 Backtest progress: {progress:.1f}% ({i}/{len(df)})")
+            df = pd.read_csv(self.csv_path)
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df.set_index('timestamp', inplace=True)
             
-            # Calculate final results
-            final_price = df['close'].iloc[-1]
-            final_portfolio_value = self.portfolio.get_total_portfolio_value_usdt(final_price)
+            logger.info(f"✅ Loaded {len(df):,} bars from {df.index.min()} to {df.index.max()}")
+            return df
             
-            # Performance metrics
-            total_return = (final_portfolio_value - self.portfolio.initial_capital_usdt) / self.portfolio.initial_capital_usdt
+        except Exception as e:
+            logger.error(f"❌ Failed to load data: {e}")
+            raise
+    
+    async def run_backtest(self) -> dict:
+        """Run the momentum-only backtest"""
+        logger.info("🚀 Starting Momentum-Only Backtest")
+        logger.info(f"💰 Initial Capital: ${self.initial_capital:,.2f} USDT")
+        
+        # Load data
+        df = self.load_data()
+        self.total_bars = len(df)
+        self.start_time = datetime.now()
+        
+        # Setup strategy with backtest mode
+        lookback_window = 50  # Need enough data for indicators
+        
+        logger.info(f"📈 Processing {self.total_bars:,} bars...")
+        logger.info(f"🔄 Lookback window: {lookback_window} bars")
+        
+        try:
+            for i in range(lookback_window, len(df)):
+                # Get data window for strategy
+                data_window = df.iloc[i-lookback_window:i+1].copy()
+                current_bar = df.iloc[i]
+                current_time = current_bar.name
+                
+                # Set backtest time for strategy
+                self.strategy._current_backtest_time = current_time
+                
+                # Process data through strategy
+                await self.strategy.process_data(data_window)
+                
+                self.processed_bars += 1
+                
+                # Progress logging (every 1000 bars)
+                if self.processed_bars % 1000 == 0:
+                    await self._log_progress(current_time, current_bar['close'])
             
-            # Calculate win rate
-            winning_trades = len([t for t in self.portfolio.closed_trades if t["profit_usd"] > 0])
-            total_trades = len(self.portfolio.closed_trades)
-            win_rate = winning_trades / total_trades if total_trades > 0 else 0
+            # Final analysis
+            final_price = df.iloc[-1]['close']
+            final_stats = await self._generate_final_report(final_price)
             
-            self.results["performance_metrics"] = {
-                "initial_capital": self.portfolio.initial_capital_usdt,
-                "final_value": final_portfolio_value,
-                "total_return_pct": total_return * 100,
-                "total_trades": total_trades,
-                "winning_trades": winning_trades,
-                "losing_trades": total_trades - winning_trades,
-                "win_rate": win_rate
-            }
-            
-            logger.info(f"✅ Backtest completed: {total_return*100:.2f}% return, {total_trades} trades")
-            
-            return self.results
+            return final_stats
             
         except KeyboardInterrupt:
             logger.info("🛑 Backtest interrupted by user")
-            raise
+            final_price = df.iloc[self.processed_bars + lookback_window - 1]['close'] if self.processed_bars > 0 else df.iloc[-1]['close']
+            return await self._generate_final_report(final_price)
         except Exception as e:
-            logger.error(f"Backtest error: {e}")
+            logger.error(f"❌ Backtest error: {e}")
             raise
-
-def parse_arguments():
-    """Parse command line arguments"""
-    parser = argparse.ArgumentParser(description="AlgoBot Backtest Runner")
     
-    parser.add_argument("--symbol", type=str, default="BTC/USDT", 
-                       help="Trading symbol (default: BTC/USDT)")
-    parser.add_argument("--timeframe", type=str, default="15m",
-                       help="Timeframe (default: 15m)")
-    parser.add_argument("--start-date", type=str, required=True,
-                       help="Start date (YYYY-MM-DD)")
-    parser.add_argument("--end-date", type=str, required=True,
-                       help="End date (YYYY-MM-DD)")
-    parser.add_argument("--strategy", type=str, default="momentum",
-                       help="Strategy to test (default: momentum)")
-    parser.add_argument("--initial-capital", type=float, default=1000,
-                       help="Initial capital in USDT (default: 1000)")
-    parser.add_argument("--data-file", type=str, required=True,
-                       help="Path to historical data CSV file")
+    async def _log_progress(self, current_time: datetime, current_price: float):
+        """Log backtest progress"""
+        progress_pct = (self.processed_bars / (self.total_bars - 50)) * 100
+        elapsed = datetime.now() - self.start_time
+        
+        # Portfolio metrics
+        portfolio_value = self.portfolio.get_total_portfolio_value_usdt(current_price)
+        profit_pct = ((portfolio_value - self.initial_capital) / self.initial_capital) * 100
+        
+        # Speed metrics
+        bars_per_sec = self.processed_bars / elapsed.total_seconds() if elapsed.total_seconds() > 0 else 0
+        
+        logger.info(f"📊 Progress: {progress_pct:5.1f}% | "
+                   f"Date: {current_time.strftime('%Y-%m-%d %H:%M')} | "
+                   f"BTC: ${current_price:,.0f} | "
+                   f"Portfolio: ${portfolio_value:,.0f} ({profit_pct:+.1f}%) | "
+                   f"Trades: {len(self.portfolio.closed_trades)} | "
+                   f"Speed: {bars_per_sec:.0f} bars/s")
     
-    return parser.parse_args()
-
-async def run_test():
-    """Run the backtest with CLI arguments"""
-    try:
-        args = parse_arguments()
+    async def _generate_final_report(self, final_price: float) -> dict:
+        """Generate comprehensive final report"""
+        logger.info("\n" + "="*80)
+        logger.info("🏁 MOMENTUM BACKTEST FINAL REPORT")
+        logger.info("="*80)
         
-        # Create necessary directories
-        Path("historical_data").mkdir(exist_ok=True)
-        Path("logs").mkdir(exist_ok=True)
+        # Basic metrics
+        final_value = self.portfolio.get_total_portfolio_value_usdt(final_price)
+        total_profit = final_value - self.initial_capital
+        total_profit_pct = (total_profit / self.initial_capital) * 100
         
-        # Log dosyalarını hazırla
-        from utils.logger import ensure_csv_header
-        ensure_csv_header(settings.TRADES_CSV_LOG_PATH)
+        # Trade statistics
+        trades = self.portfolio.closed_trades
+        total_trades = len(trades)
         
-        logger.info(f"🔧 Backtest Configuration:")
-        logger.info(f"   Symbol: {args.symbol}")
-        logger.info(f"   Timeframe: {args.timeframe}")
-        logger.info(f"   Period: {args.start_date} to {args.end_date}")
-        logger.info(f"   Strategy: {args.strategy}")
-        logger.info(f"   Initial Capital: ${args.initial_capital}")
-        logger.info(f"   Data File: {args.data_file}")
-        
-        # Check if data file exists
-        data_path = Path(args.data_file)
-        if not data_path.exists():
-            logger.error(f"Data file not found: {args.data_file}")
+        if total_trades > 0:
+            winning_trades = [t for t in trades if t["profit_usd"] > 0]
+            losing_trades = [t for t in trades if t["profit_usd"] <= 0]
             
-            # Try alternative file names
-            alternative_files = [
-                f"historical_data/{args.symbol.replace('/', '')}_{args.timeframe}_{args.start_date.replace('-', '')}_{args.end_date.replace('-', '')}.csv",
-                f"historical_data/BTCUSDT_{args.timeframe}_20240101_20241231.csv",
-                f"historical_data/BTCUSDT_15m_20240301_20241231.csv"
-            ]
+            win_count = len(winning_trades)
+            loss_count = len(losing_trades)
+            win_rate = (win_count / total_trades) * 100
             
-            logger.info("🔍 Looking for alternative data files:")
-            for alt_file in alternative_files:
-                alt_path = Path(alt_file)
-                logger.info(f"   Checking: {alt_file} - {'✅ Found' if alt_path.exists() else '❌ Not found'}")
-                if alt_path.exists():
-                    logger.info(f"✅ Using alternative file: {alt_file}")
-                    data_path = alt_path
-                    break
-            else:
-                logger.error("❌ No data files found. Please run data downloader first:")
-                logger.error(f"   python data_downloader.py --symbol {args.symbol} --timeframe {args.timeframe} --startdate {args.start_date} --enddate {args.end_date}")
-                logger.info("\n📁 Expected file location:")
-                expected_file = f"historical_data/{args.symbol.replace('/', '')}_{args.timeframe}_{args.start_date.replace('-', '')}_{args.end_date.replace('-', '')}.csv"
-                logger.info(f"   {expected_file}")
-                return
-        
-        # Load and prepare data
-        logger.info(f"📊 Loading data from: {data_path}")
-        df = pd.read_csv(data_path)
-        
-        # Convert timestamp to datetime
-        if 'timestamp' in df.columns:
-            df['timestamp'] = pd.to_datetime(df['timestamp'], utc=True)
-            df.set_index('timestamp', inplace=True)
+            total_wins = sum(t["profit_usd"] for t in winning_trades)
+            total_losses = abs(sum(t["profit_usd"] for t in losing_trades))
+            
+            profit_factor = total_wins / total_losses if total_losses > 0 else float('inf')
+            avg_win = total_wins / win_count if win_count > 0 else 0
+            avg_loss = total_losses / loss_count if loss_count > 0 else 0
+            
+            max_win = max((t["profit_usd"] for t in winning_trades), default=0)
+            max_loss = min((t["profit_usd"] for t in losing_trades), default=0)
+            
+            # Hold times
+            hold_times = [t.get("hold_minutes", 0) for t in trades]
+            avg_hold_time = sum(hold_times) / len(hold_times)
         else:
-            logger.error("No 'timestamp' column found in data file")
-            return
+            win_rate = profit_factor = avg_win = avg_loss = max_win = max_loss = avg_hold_time = 0
+            win_count = loss_count = 0
+            total_wins = total_losses = 0
         
-        # ⚡ TZ-AWARE DATETIME KARŞILAŞTIRMASI - SORUN ÇÖZÜLDİ!
-        start_date = pd.to_datetime(args.start_date, utc=True)
-        end_date = pd.to_datetime(args.end_date, utc=True)
+        # Performance summary
+        performance_emoji = "🚀" if total_profit_pct > 10 else "💰" if total_profit_pct > 0 else "📉"
         
-        # Sadece ilgili tarih aralığını filtrele
-        df = df[(df.index >= start_date) & (df.index <= end_date)]
+        logger.info(f"💰 PORTFOLIO PERFORMANCE:")
+        logger.info(f"   Initial Capital:    ${self.initial_capital:>10,.2f} USDT")
+        logger.info(f"   Final Value:        ${final_value:>10,.2f} USDT")
+        logger.info(f"   Total P&L:          ${total_profit:>+10,.2f} USDT ({total_profit_pct:>+6.2f}%) {performance_emoji}")
+        logger.info(f"   Final BTC Price:    ${final_price:>10,.2f} USDT")
         
-        if df.empty:
-            logger.error(f"No data found in specified date range: {args.start_date} to {args.end_date}")
-            return
-        
-        logger.info(f"📊 Loaded {len(df)} data points from {df.index[0]} to {df.index[-1]}")
-        
-        # Update settings for backtest
-        settings.SYMBOL = args.symbol
-        settings.TIMEFRAME = args.timeframe
-        
-        # Run backtest
-        runner = BacktestRunner(initial_capital=args.initial_capital)
-        results = await runner.run_backtest(df)
-        
-        # Print results
-        print("\n" + "="*60)
-        print("📈 BACKTEST RESULTS")
-        print("="*60)
-        
-        metrics = results["performance_metrics"]
-        print(f"Initial Capital:     ${metrics['initial_capital']:,.2f}")
-        print(f"Final Value:         ${metrics['final_value']:,.2f}")
-        print(f"Total Return:        {metrics['total_return_pct']:+.2f}%")
-        print(f"Total Trades:        {metrics['total_trades']}")
-        print(f"Winning Trades:      {metrics['winning_trades']}")
-        print(f"Losing Trades:       {metrics['losing_trades']}")
-        print(f"Win Rate:            {metrics['win_rate']*100:.1f}%")
-        
-        if metrics['total_trades'] > 0:
-            total_profit = sum(t['profit_usd'] for t in runner.portfolio.closed_trades)
-            avg_profit = total_profit / metrics['total_trades']
-            print(f"Average P&L/Trade:   ${avg_profit:+.2f}")
+        if total_trades > 0:
+            logger.info(f"\n📊 TRADING STATISTICS:")
+            logger.info(f"   Total Trades:       {total_trades:>10}")
+            logger.info(f"   Winning Trades:     {win_count:>10} ({win_rate:>5.1f}%)")
+            logger.info(f"   Losing Trades:      {loss_count:>10} ({100-win_rate:>5.1f}%)")
+            logger.info(f"   Profit Factor:      {profit_factor:>10.2f}")
+            logger.info(f"   Average Hold Time:  {avg_hold_time:>10.1f} minutes")
             
-            # En iyi ve en kötü trade
-            best_trade = max(runner.portfolio.closed_trades, key=lambda x: x['profit_usd'])
-            worst_trade = min(runner.portfolio.closed_trades, key=lambda x: x['profit_usd'])
-            print(f"Best Trade:          ${best_trade['profit_usd']:+.2f} ({best_trade['profit_pct']*100:+.1f}%)")
-            print(f"Worst Trade:         ${worst_trade['profit_usd']:+.2f} ({worst_trade['profit_pct']*100:+.1f}%)")
+            logger.info(f"\n💵 PROFIT BREAKDOWN:")
+            logger.info(f"   Total Wins:         ${total_wins:>+10.2f} USDT")
+            logger.info(f"   Total Losses:       ${-total_losses:>+10.2f} USDT")
+            logger.info(f"   Average Win:        ${avg_win:>+10.2f} USDT")
+            logger.info(f"   Average Loss:       ${-avg_loss:>+10.2f} USDT")
+            logger.info(f"   Best Trade:         ${max_win:>+10.2f} USDT")
+            logger.info(f"   Worst Trade:        ${max_loss:>+10.2f} USDT")
         
-        print("="*60)
+        # Runtime statistics
+        elapsed = datetime.now() - self.start_time if self.start_time else datetime.now()
+        bars_per_sec = self.processed_bars / elapsed.total_seconds() if elapsed.total_seconds() > 0 else 0
         
-        # Save detailed results
-        results_file = f"backtest_results_{args.symbol.replace('/', '')}_{args.strategy}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-        with open(results_file, 'w') as f:
-            f.write(f"Backtest Results\n")
-            f.write(f"================\n")
-            f.write(f"Symbol: {args.symbol}\n")
-            f.write(f"Strategy: {args.strategy}\n")
-            f.write(f"Period: {args.start_date} to {args.end_date}\n")
-            f.write(f"Initial Capital: ${args.initial_capital}\n")
-            f.write(f"Final Value: ${metrics['final_value']:.2f}\n")
-            f.write(f"Total Return: {metrics['total_return_pct']:+.2f}%\n")
-            f.write(f"Total Trades: {metrics['total_trades']}\n")
-            f.write(f"Win Rate: {metrics['win_rate']*100:.1f}%\n\n")
-            
-            f.write("Trade Details:\n")
-            f.write("==============\n")
-            for i, trade in enumerate(runner.portfolio.closed_trades, 1):
-                f.write(f"Trade {i:3d}: {trade['profit_usd']:+7.2f} USD ({trade['profit_pct']*100:+6.2f}%) - {trade['exit_reason']}\n")
+        logger.info(f"\n⏱️  BACKTEST PERFORMANCE:")
+        logger.info(f"   Processed Bars:     {self.processed_bars:>10,}")
+        logger.info(f"   Runtime:            {elapsed}")
+        logger.info(f"   Speed:              {bars_per_sec:>10.0f} bars/second")
         
-        logger.info(f"📋 Detailed results saved to: {results_file}")
+        logger.info("="*80)
+        
+        # Return stats dictionary
+        return {
+            "initial_capital": self.initial_capital,
+            "final_value": final_value,
+            "total_profit": total_profit,
+            "total_profit_pct": total_profit_pct,
+            "total_trades": total_trades,
+            "win_rate": win_rate,
+            "profit_factor": profit_factor,
+            "max_win": max_win,
+            "max_loss": max_loss,
+            "avg_hold_time": avg_hold_time,
+            "processed_bars": self.processed_bars,
+            "runtime_seconds": elapsed.total_seconds()
+        }
+
+async def main():
+    """Main backtest execution"""
+    # Find historical data file
+    data_dir = Path("historical_data")
+    data_files = list(data_dir.glob("BTCUSDT_5m_*2024*.csv"))
+    
+    if not data_files:
+        print("❌ No historical data found! Please run:")
+        print("python data_downloader.py --symbol BTC/USDT --timeframe 5m --startdate 2024-03-01 --enddate 2024-12-31")
+        return
+    
+    # Use the most recent file
+    data_file = sorted(data_files)[-1]
+    
+    logger.info(f"🚀 Starting Momentum-Only Backtest")
+    logger.info(f"📁 Data file: {data_file}")
+    
+    # Create and run backtest
+    backtester = MomentumBacktester(data_file, initial_capital=1000.0)
+    
+    try:
+        results = await backtester.run_backtest()
+        
+        # Performance rating
+        profit_pct = results["total_profit_pct"]
+        if profit_pct > 50:
+            rating = "🌟 EXCEPTIONAL"
+        elif profit_pct > 20:
+            rating = "🚀 EXCELLENT"
+        elif profit_pct > 10:
+            rating = "💎 GREAT"
+        elif profit_pct > 5:
+            rating = "👍 GOOD"
+        elif profit_pct > 0:
+            rating = "⚖️ POSITIVE"
+        elif profit_pct > -10:
+            rating = "👎 POOR"
+        else:
+            rating = "🔴 CRITICAL"
+        
+        print(f"\n🏆 BACKTEST RATING: {rating}")
+        print(f"💰 FINAL RESULT: {results['total_profit']:+.2f} USD ({results['total_profit_pct']:+.2f}%)")
         
     except KeyboardInterrupt:
         logger.info("🛑 Backtest interrupted by user")
     except Exception as e:
-        logger.error(f"Backtest failed: {e}")
-        raise
-
-def main():
-    """Main entry point"""
-    asyncio.run(run_test())
+        logger.error(f"❌ Backtest failed: {e}")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

@@ -26,20 +26,21 @@ if %ERRORLEVEL% EQU 0 (
     echo 📋 Son değişiklikleriniz GitHub'a yüklendi!
     echo 🔍 Değişiklikleri görmek için repository'yi ziyaret edin.
     echo.
-    echo 💡 Unutmayın:
-    echo    - historical_data klasörü yapısı GitHub'da
-    echo    - CSV dosyaları boyut nedeniyle Git'e dahil değil
-    echo    - Veri indirmek için: python data_downloader.py
+    echo 💡 Diğer komutlar:
+    echo    .\git_pull.bat - GitHub'dan değişiklikleri çek
+    echo    .\git_status.bat - Git durumunu kontrol et
 ) else (
     echo.
     echo ❌ Push işlemi başarısız oldu!
     echo 💡 Olası nedenler:
     echo    - İnternet bağlantısı sorunu
     echo    - GitHub authentication süresi dolmuş
+    echo    - Remote'da yeni değişiklikler var (pull gerekli)
     echo.
     echo 🔧 Manuel olarak deneyin:
     echo    git status
-    echo    git push origin main
+    echo    git pull origin main (önce çek)
+    echo    git push origin main (sonra push et)
     echo.
 )
 
