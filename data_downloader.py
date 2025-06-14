@@ -249,3 +249,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# BTC 2022 verisini indirmek için komut satırından çalıştır:
+# python data_downloader.py --symbol BTC/USDT --timeframe 15m --startdate 2022-01-01 --enddate 2022-12-31 --delay 0.3

@@ -2,597 +2,754 @@
 
 import pandas as pd
 import pandas_ta as ta
-from typing import Optional, Dict, Tuple, Any  # Any eklendi
+from typing import Optional, Dict, Tuple, Any
 from datetime import datetime, timezone
 import asyncio
 
 from utils.portfolio import Portfolio, Position
 from utils.config import settings
 from utils.logger import logger
-from utils.ai_signal_provider import AiSignalProvider
+from utils.ai_signal_provider import AiSignalProvider # AiSignalProvider import edildi
 
 class MomentumStrategy:
     """🚀 Advanced Standalone Momentum Strategy with AI Enhancement"""
     
-    def __init__(self, portfolio: Portfolio, symbol: str = "BTC/USDT"):
+    def __init__(
+        self, 
+        portfolio: Portfolio, 
+        symbol: str = "BTC/USDT",
+        # --- Teknik İndikatör Parametreleri ---
+        ema_short: Optional[int] = None,
+        ema_medium: Optional[int] = None,
+        ema_long: Optional[int] = None,
+        rsi_period: Optional[int] = None,
+        adx_period: Optional[int] = None,
+        atr_period: Optional[int] = None,
+        volume_sma_period: Optional[int] = None,
+        
+        # --- Pozisyon Yönetimi Parametreleri ---
+        max_positions: Optional[int] = None,
+        base_position_size_pct: Optional[float] = None,
+        min_position_usdt: Optional[float] = None,
+        max_position_usdt: Optional[float] = None,
+        
+        # --- Performansa Dayalı Pozisyon Boyutlandırma ---
+        size_high_profit_pct: Optional[float] = None,
+        size_good_profit_pct: Optional[float] = None,
+        size_normal_profit_pct: Optional[float] = None,
+        size_breakeven_pct: Optional[float] = None,
+        size_loss_pct: Optional[float] = None,
+        size_max_balance_pct: Optional[float] = None,
+        
+        # --- Performans Eşikleri ---
+        perf_high_profit_threshold: Optional[float] = None,
+        perf_good_profit_threshold: Optional[float] = None,
+        perf_normal_profit_threshold: Optional[float] = None,
+        perf_breakeven_threshold: Optional[float] = None,
+        
+        # --- Risk Yönetimi Parametreleri ---
+        max_loss_pct: Optional[float] = None,
+        min_profit_target_usdt: Optional[float] = None,
+        quick_profit_threshold_usdt: Optional[float] = None,
+        max_hold_minutes: Optional[int] = None,
+        breakeven_minutes: Optional[int] = None,
+        
+        # --- Alım Koşulları - Temel ---
+        buy_min_quality_score: Optional[int] = None,
+        buy_min_ema_spread_1: Optional[float] = None,
+        buy_min_ema_spread_2: Optional[float] = None,
+        
+        # --- EMA Momentum Parametreleri ---
+        buy_ema_mom_excellent: Optional[float] = None,
+        buy_ema_mom_good: Optional[float] = None,
+        buy_ema_mom_decent: Optional[float] = None,
+        buy_ema_mom_min: Optional[float] = None,
+        
+        # --- RSI Parametreleri ---
+        buy_rsi_excellent_min: Optional[float] = None,
+        buy_rsi_excellent_max: Optional[float] = None,
+        buy_rsi_good_min: Optional[float] = None,
+        buy_rsi_good_max: Optional[float] = None,
+        buy_rsi_extreme_min: Optional[float] = None,
+        buy_rsi_extreme_max: Optional[float] = None,
+        
+        # --- ADX Parametreleri ---
+        buy_adx_excellent: Optional[float] = None,
+        buy_adx_good: Optional[float] = None,
+        buy_adx_decent: Optional[float] = None,
+        
+        # --- Volume Parametreleri ---
+        buy_volume_excellent: Optional[float] = None,
+        buy_volume_good: Optional[float] = None,
+        buy_volume_decent: Optional[float] = None,
+        
+        # --- Price Momentum Parametreleri ---
+        buy_price_mom_excellent: Optional[float] = None,
+        buy_price_mom_good: Optional[float] = None,
+        buy_price_mom_decent: Optional[float] = None,
+        
+        # --- Satış Koşulları - Temel ---
+        sell_min_hold_minutes: Optional[int] = None,
+        sell_catastrophic_loss_pct: Optional[float] = None,
+        
+        # --- Premium Kar Seviyeleri ---
+        sell_premium_excellent: Optional[float] = None,
+        sell_premium_great: Optional[float] = None,
+        sell_premium_good: Optional[float] = None,
+        
+        # --- Faz 1 Parametreleri ---
+        sell_phase1_excellent: Optional[float] = None,
+        sell_phase1_good: Optional[float] = None,
+        sell_phase1_loss_protection: Optional[float] = None,
+        
+        # --- Faz 2 Parametreleri ---
+        sell_phase2_excellent: Optional[float] = None,
+        sell_phase2_good: Optional[float] = None,
+        sell_phase2_decent: Optional[float] = None,
+        sell_phase2_loss_protection: Optional[float] = None,
+        
+        # --- Faz 3 Parametreleri ---
+        sell_phase3_excellent: Optional[float] = None,
+        sell_phase3_good: Optional[float] = None,
+        sell_phase3_decent: Optional[float] = None,
+        sell_phase3_breakeven_min: Optional[float] = None,
+        sell_phase3_breakeven_max: Optional[float] = None,
+        sell_phase3_loss_protection: Optional[float] = None,
+        
+        # --- Faz 4 Parametreleri ---
+        sell_phase4_excellent: Optional[float] = None,
+        sell_phase4_good: Optional[float] = None,
+        sell_phase4_minimal: Optional[float] = None,
+        sell_phase4_breakeven_min: Optional[float] = None,
+        sell_phase4_breakeven_max: Optional[float] = None,
+        sell_phase4_force_exit_minutes: Optional[int] = None,
+        
+        # --- Risk ve Teknik Satış Parametreleri ---
+        sell_loss_multiplier: Optional[float] = None,
+        sell_tech_min_minutes: Optional[int] = None,
+        sell_tech_min_loss: Optional[float] = None,
+        sell_tech_rsi_extreme: Optional[float] = None,
+        
+        # --- Bekleme Süreleri ---
+        wait_profit_5pct: Optional[int] = None,
+        wait_profit_2pct: Optional[int] = None,
+        wait_breakeven: Optional[int] = None,
+        wait_loss: Optional[int] = None,
+        
+        # --- AI Parametreleri ---
+        ai_confidence_threshold: Optional[float] = None,
+        ai_momentum_confidence_override: Optional[float] = None,
+        
+        # --- AI Teknik Analiz Ağırlıkları ---
+        ai_weight_trend_main: Optional[float] = None,
+        ai_weight_trend_long: Optional[float] = None,
+        ai_weight_volume: Optional[float] = None,
+        ai_weight_divergence: Optional[float] = None,
+        
+        # --- AI Eşikleri ---
+        ai_standalone_thresh_strong_buy: Optional[float] = None,
+        ai_standalone_thresh_buy: Optional[float] = None,
+        ai_standalone_thresh_sell: Optional[float] = None,
+        ai_standalone_thresh_strong_sell: Optional[float] = None,
+        
+        # --- AI Onay Parametreleri ---
+        ai_confirm_min_ta_score: Optional[float] = None,
+        ai_confirm_min_quality_score: Optional[int] = None,
+        ai_confirm_min_ema_spread_1: Optional[float] = None,
+        ai_confirm_min_ema_spread_2: Optional[float] = None,
+        ai_confirm_min_volume_ratio: Optional[float] = None,
+        ai_confirm_min_price_momentum: Optional[float] = None,
+        ai_confirm_min_ema_momentum: Optional[float] = None,
+        ai_confirm_min_adx: Optional[float] = None,
+        
+        # --- AI Zarar/Kar Durumlarında TA Score Eşikleri ---
+        ai_confirm_loss_5pct_ta_score: Optional[float] = None,
+        ai_confirm_loss_2pct_ta_score: Optional[float] = None,
+        ai_confirm_profit_ta_score: Optional[float] = None,
+        
+        # --- AI Risk Değerlendirme ---
+        ai_risk_volatility_threshold: Optional[float] = None,
+        ai_risk_volume_spike_threshold: Optional[float] = None,
+        
+        # --- Global Risk Parametreleri ---
+        global_max_position_size_pct: Optional[float] = None,
+        global_max_open_positions: Optional[int] = None,
+        global_max_portfolio_drawdown_pct: Optional[float] = None,
+        global_max_daily_loss_pct: Optional[float] = None,
+        
+        # --- Sistem Parametreleri ---
+        min_time_between_trades_sec: Optional[int] = None,
+        min_trade_amount_usdt: Optional[float] = None,
+        
+        # --- AI Provider ---
+        ai_provider_instance: Optional[AiSignalProvider] = None
+    ):
         self.strategy_name = "Momentum"
         self.portfolio = portfolio
-        self.symbol = symbol
+        self.symbol = symbol if symbol else settings.SYMBOL
         
-        # 🔧 ALL PARAMETERS FROM CONFIG NOW!
-        # Core Technical Parameters
-        self.ema_short = settings.MOMENTUM_EMA_SHORT
-        self.ema_medium = settings.MOMENTUM_EMA_MEDIUM
-        self.ema_long = settings.MOMENTUM_EMA_LONG
-        self.rsi_period = settings.MOMENTUM_RSI_PERIOD
-        self.adx_period = settings.MOMENTUM_ADX_PERIOD
-        self.atr_period = settings.MOMENTUM_ATR_PERIOD
-        self.volume_sma_period = settings.MOMENTUM_VOLUME_SMA_PERIOD
+        # Teknik İndikatör Parametreleri
+        self.ema_short = ema_short if ema_short is not None else settings.MOMENTUM_EMA_SHORT
+        self.ema_medium = ema_medium if ema_medium is not None else settings.MOMENTUM_EMA_MEDIUM
+        self.ema_long = ema_long if ema_long is not None else settings.MOMENTUM_EMA_LONG
+        self.rsi_period = rsi_period if rsi_period is not None else settings.MOMENTUM_RSI_PERIOD
+        self.adx_period = adx_period if adx_period is not None else settings.MOMENTUM_ADX_PERIOD
+        self.atr_period = atr_period if atr_period is not None else settings.MOMENTUM_ATR_PERIOD
+        self.volume_sma_period = volume_sma_period if volume_sma_period is not None else settings.MOMENTUM_VOLUME_SMA_PERIOD
         
-        # Position Management
-        self.max_positions = settings.MOMENTUM_MAX_POSITIONS
-        self.base_position_pct = settings.MOMENTUM_BASE_POSITION_SIZE_PCT
-        self.max_position_usdt = settings.MOMENTUM_MAX_POSITION_USDT
-        self.min_position_usdt = settings.MOMENTUM_MIN_POSITION_USDT
-        self.max_total_exposure_pct = settings.MOMENTUM_MAX_TOTAL_EXPOSURE_PCT
+        # Pozisyon Yönetimi
+        self.max_positions = max_positions if max_positions is not None else settings.MOMENTUM_MAX_POSITIONS
+        self.base_position_pct = base_position_size_pct if base_position_size_pct is not None else settings.MOMENTUM_BASE_POSITION_SIZE_PCT
+        self.min_position_usdt = min_position_usdt if min_position_usdt is not None else settings.MOMENTUM_MIN_POSITION_USDT
+        self.max_position_usdt = max_position_usdt if max_position_usdt is not None else settings.MOMENTUM_MAX_POSITION_USDT
         
-        # Position tracking
+        # Performansa Dayalı Pozisyon Boyutlandırma
+        self.size_high_profit_pct = size_high_profit_pct if size_high_profit_pct is not None else settings.MOMENTUM_SIZE_HIGH_PROFIT_PCT
+        self.size_good_profit_pct = size_good_profit_pct if size_good_profit_pct is not None else settings.MOMENTUM_SIZE_GOOD_PROFIT_PCT
+        self.size_normal_profit_pct = size_normal_profit_pct if size_normal_profit_pct is not None else settings.MOMENTUM_SIZE_NORMAL_PROFIT_PCT
+        self.size_breakeven_pct = size_breakeven_pct if size_breakeven_pct is not None else settings.MOMENTUM_SIZE_BREAKEVEN_PCT
+        self.size_loss_pct = size_loss_pct if size_loss_pct is not None else settings.MOMENTUM_SIZE_LOSS_PCT
+        self.size_max_balance_pct = size_max_balance_pct if size_max_balance_pct is not None else settings.MOMENTUM_SIZE_MAX_BALANCE_PCT
+        
+        # Performans Eşikleri
+        self.perf_high_profit_threshold = perf_high_profit_threshold if perf_high_profit_threshold is not None else settings.MOMENTUM_PERF_HIGH_PROFIT_THRESHOLD
+        self.perf_good_profit_threshold = perf_good_profit_threshold if perf_good_profit_threshold is not None else settings.MOMENTUM_PERF_GOOD_PROFIT_THRESHOLD
+        self.perf_normal_profit_threshold = perf_normal_profit_threshold if perf_normal_profit_threshold is not None else settings.MOMENTUM_PERF_NORMAL_PROFIT_THRESHOLD
+        self.perf_breakeven_threshold = perf_breakeven_threshold if perf_breakeven_threshold is not None else settings.MOMENTUM_PERF_BREAKEVEN_THRESHOLD
+        
+        # Risk Yönetimi
+        self.max_loss_pct = max_loss_pct if max_loss_pct is not None else settings.MOMENTUM_MAX_LOSS_PCT
+        self.min_profit_target_usdt = min_profit_target_usdt if min_profit_target_usdt is not None else settings.MOMENTUM_MIN_PROFIT_TARGET_USDT
+        self.quick_profit_threshold_usdt = quick_profit_threshold_usdt if quick_profit_threshold_usdt is not None else settings.MOMENTUM_QUICK_PROFIT_THRESHOLD_USDT
+        self.max_hold_minutes = max_hold_minutes if max_hold_minutes is not None else settings.MOMENTUM_MAX_HOLD_MINUTES
+        self.breakeven_minutes = breakeven_minutes if breakeven_minutes is not None else settings.MOMENTUM_BREAKEVEN_MINUTES
+        
+        # Alım Koşulları
+        self.buy_min_quality_score = buy_min_quality_score if buy_min_quality_score is not None else settings.MOMENTUM_BUY_MIN_QUALITY_SCORE
+        self.buy_min_ema_spread_1 = buy_min_ema_spread_1 if buy_min_ema_spread_1 is not None else settings.MOMENTUM_BUY_MIN_EMA_SPREAD_1
+        self.buy_min_ema_spread_2 = buy_min_ema_spread_2 if buy_min_ema_spread_2 is not None else settings.MOMENTUM_BUY_MIN_EMA_SPREAD_2
+        
+        # EMA Momentum
+        self.buy_ema_mom_excellent = buy_ema_mom_excellent if buy_ema_mom_excellent is not None else settings.MOMENTUM_BUY_EMA_MOM_EXCELLENT
+        self.buy_ema_mom_good = buy_ema_mom_good if buy_ema_mom_good is not None else settings.MOMENTUM_BUY_EMA_MOM_GOOD
+        self.buy_ema_mom_decent = buy_ema_mom_decent if buy_ema_mom_decent is not None else settings.MOMENTUM_BUY_EMA_MOM_DECENT
+        self.buy_ema_mom_min = buy_ema_mom_min if buy_ema_mom_min is not None else settings.MOMENTUM_BUY_EMA_MOM_MIN
+        
+        # RSI Parametreleri
+        self.buy_rsi_excellent_min = buy_rsi_excellent_min if buy_rsi_excellent_min is not None else settings.MOMENTUM_BUY_RSI_EXCELLENT_MIN
+        self.buy_rsi_excellent_max = buy_rsi_excellent_max if buy_rsi_excellent_max is not None else settings.MOMENTUM_BUY_RSI_EXCELLENT_MAX
+        self.buy_rsi_good_min = buy_rsi_good_min if buy_rsi_good_min is not None else settings.MOMENTUM_BUY_RSI_GOOD_MIN
+        self.buy_rsi_good_max = buy_rsi_good_max if buy_rsi_good_max is not None else settings.MOMENTUM_BUY_RSI_GOOD_MAX
+        self.buy_rsi_extreme_min = buy_rsi_extreme_min if buy_rsi_extreme_min is not None else settings.MOMENTUM_BUY_RSI_EXTREME_MIN
+        self.buy_rsi_extreme_max = buy_rsi_extreme_max if buy_rsi_extreme_max is not None else settings.MOMENTUM_BUY_RSI_EXTREME_MAX
+        
+        # ADX Parametreleri
+        self.buy_adx_excellent = buy_adx_excellent if buy_adx_excellent is not None else settings.MOMENTUM_BUY_ADX_EXCELLENT
+        self.buy_adx_good = buy_adx_good if buy_adx_good is not None else settings.MOMENTUM_BUY_ADX_GOOD
+        self.buy_adx_decent = buy_adx_decent if buy_adx_decent is not None else settings.MOMENTUM_BUY_ADX_DECENT
+        
+        # Volume Parametreleri
+        self.buy_volume_excellent = buy_volume_excellent if buy_volume_excellent is not None else settings.MOMENTUM_BUY_VOLUME_EXCELLENT
+        self.buy_volume_good = buy_volume_good if buy_volume_good is not None else settings.MOMENTUM_BUY_VOLUME_GOOD
+        self.buy_volume_decent = buy_volume_decent if buy_volume_decent is not None else settings.MOMENTUM_BUY_VOLUME_DECENT
+        
+        # Price Momentum
+        self.buy_price_mom_excellent = buy_price_mom_excellent if buy_price_mom_excellent is not None else settings.MOMENTUM_BUY_PRICE_MOM_EXCELLENT
+        self.buy_price_mom_good = buy_price_mom_good if buy_price_mom_good is not None else settings.MOMENTUM_BUY_PRICE_MOM_GOOD
+        self.buy_price_mom_decent = buy_price_mom_decent if buy_price_mom_decent is not None else settings.MOMENTUM_BUY_PRICE_MOM_DECENT
+        
+        # Satış Koşulları
+        self.sell_min_hold_minutes = sell_min_hold_minutes if sell_min_hold_minutes is not None else settings.MOMENTUM_SELL_MIN_HOLD_MINUTES
+        self.sell_catastrophic_loss_pct = sell_catastrophic_loss_pct if sell_catastrophic_loss_pct is not None else settings.MOMENTUM_SELL_CATASTROPHIC_LOSS_PCT
+        
+        # Premium Kar Seviyeleri
+        self.sell_premium_excellent = sell_premium_excellent if sell_premium_excellent is not None else settings.MOMENTUM_SELL_PREMIUM_EXCELLENT
+        self.sell_premium_great = sell_premium_great if sell_premium_great is not None else settings.MOMENTUM_SELL_PREMIUM_GREAT
+        self.sell_premium_good = sell_premium_good if sell_premium_good is not None else settings.MOMENTUM_SELL_PREMIUM_GOOD
+        
+        # Faz Parametreleri
+        self.sell_phase1_excellent = sell_phase1_excellent if sell_phase1_excellent is not None else settings.MOMENTUM_SELL_PHASE1_EXCELLENT
+        self.sell_phase1_good = sell_phase1_good if sell_phase1_good is not None else settings.MOMENTUM_SELL_PHASE1_GOOD
+        self.sell_phase1_loss_protection = sell_phase1_loss_protection if sell_phase1_loss_protection is not None else settings.MOMENTUM_SELL_PHASE1_LOSS_PROTECTION
+        
+        self.sell_phase2_excellent = sell_phase2_excellent if sell_phase2_excellent is not None else settings.MOMENTUM_SELL_PHASE2_EXCELLENT
+        self.sell_phase2_good = sell_phase2_good if sell_phase2_good is not None else settings.MOMENTUM_SELL_PHASE2_GOOD
+        self.sell_phase2_decent = sell_phase2_decent if sell_phase2_decent is not None else settings.MOMENTUM_SELL_PHASE2_DECENT
+        self.sell_phase2_loss_protection = sell_phase2_loss_protection if sell_phase2_loss_protection is not None else settings.MOMENTUM_SELL_PHASE2_LOSS_PROTECTION
+        
+        self.sell_phase3_excellent = sell_phase3_excellent if sell_phase3_excellent is not None else settings.MOMENTUM_SELL_PHASE3_EXCELLENT
+        self.sell_phase3_good = sell_phase3_good if sell_phase3_good is not None else settings.MOMENTUM_SELL_PHASE3_GOOD
+        self.sell_phase3_decent = sell_phase3_decent if sell_phase3_decent is not None else settings.MOMENTUM_SELL_PHASE3_DECENT
+        self.sell_phase3_breakeven_min = sell_phase3_breakeven_min if sell_phase3_breakeven_min is not None else settings.MOMENTUM_SELL_PHASE3_BREAKEVEN_MIN
+        self.sell_phase3_breakeven_max = sell_phase3_breakeven_max if sell_phase3_breakeven_max is not None else settings.MOMENTUM_SELL_PHASE3_BREAKEVEN_MAX
+        self.sell_phase3_loss_protection = sell_phase3_loss_protection if sell_phase3_loss_protection is not None else settings.MOMENTUM_SELL_PHASE3_LOSS_PROTECTION
+        
+        self.sell_phase4_excellent = sell_phase4_excellent if sell_phase4_excellent is not None else settings.MOMENTUM_SELL_PHASE4_EXCELLENT
+        self.sell_phase4_good = sell_phase4_good if sell_phase4_good is not None else settings.MOMENTUM_SELL_PHASE4_GOOD
+        self.sell_phase4_minimal = sell_phase4_minimal if sell_phase4_minimal is not None else settings.MOMENTUM_SELL_PHASE4_MINIMAL
+        self.sell_phase4_breakeven_min = sell_phase4_breakeven_min if sell_phase4_breakeven_min is not None else settings.MOMENTUM_SELL_PHASE4_BREAKEVEN_MIN
+        self.sell_phase4_breakeven_max = sell_phase4_breakeven_max if sell_phase4_breakeven_max is not None else settings.MOMENTUM_SELL_PHASE4_BREAKEVEN_MAX
+        self.sell_phase4_force_exit_minutes = sell_phase4_force_exit_minutes if sell_phase4_force_exit_minutes is not None else settings.MOMENTUM_SELL_PHASE4_FORCE_EXIT_MINUTES
+        
+        # Risk ve Teknik Satış
+        self.sell_loss_multiplier = sell_loss_multiplier if sell_loss_multiplier is not None else settings.MOMENTUM_SELL_LOSS_MULTIPLIER
+        self.sell_tech_min_minutes = sell_tech_min_minutes if sell_tech_min_minutes is not None else settings.MOMENTUM_SELL_TECH_MIN_MINUTES
+        self.sell_tech_min_loss = sell_tech_min_loss if sell_tech_min_loss is not None else settings.MOMENTUM_SELL_TECH_MIN_LOSS
+        self.sell_tech_rsi_extreme = sell_tech_rsi_extreme if sell_tech_rsi_extreme is not None else settings.MOMENTUM_SELL_TECH_RSI_EXTREME
+        
+        # Bekleme Süreleri
+        self.wait_profit_5pct = wait_profit_5pct if wait_profit_5pct is not None else settings.MOMENTUM_WAIT_PROFIT_5PCT
+        self.wait_profit_2pct = wait_profit_2pct if wait_profit_2pct is not None else settings.MOMENTUM_WAIT_PROFIT_2PCT
+        self.wait_breakeven = wait_breakeven if wait_breakeven is not None else settings.MOMENTUM_WAIT_BREAKEVEN
+        self.wait_loss = wait_loss if wait_loss is not None else settings.MOMENTUM_WAIT_LOSS
+        
+        # AI Parametreleri
+        self.ai_confidence_threshold = ai_confidence_threshold if ai_confidence_threshold is not None else settings.AI_CONFIDENCE_THRESHOLD
+        self.ai_momentum_confidence_override = ai_momentum_confidence_override if ai_momentum_confidence_override is not None else settings.AI_MOMENTUM_CONFIDENCE_OVERRIDE
+        
+        # AI Ağırlıkları
+        self.ai_weight_trend_main = ai_weight_trend_main if ai_weight_trend_main is not None else settings.AI_TA_WEIGHT_TREND_MAIN
+        self.ai_weight_trend_long = ai_weight_trend_long if ai_weight_trend_long is not None else settings.AI_TA_WEIGHT_TREND_LONG
+        self.ai_weight_volume = ai_weight_volume if ai_weight_volume is not None else settings.AI_TA_WEIGHT_VOLUME
+        self.ai_weight_divergence = ai_weight_divergence if ai_weight_divergence is not None else settings.AI_TA_WEIGHT_DIVERGENCE
+        
+        # AI Eşikleri
+        self.ai_standalone_thresh_strong_buy = ai_standalone_thresh_strong_buy if ai_standalone_thresh_strong_buy is not None else settings.AI_TA_STANDALONE_THRESH_STRONG_BUY
+        self.ai_standalone_thresh_buy = ai_standalone_thresh_buy if ai_standalone_thresh_buy is not None else settings.AI_TA_STANDALONE_THRESH_BUY
+        self.ai_standalone_thresh_sell = ai_standalone_thresh_sell if ai_standalone_thresh_sell is not None else settings.AI_TA_STANDALONE_THRESH_SELL
+        self.ai_standalone_thresh_strong_sell = ai_standalone_thresh_strong_sell if ai_standalone_thresh_strong_sell is not None else settings.AI_TA_STANDALONE_THRESH_STRONG_SELL
+        
+        # AI Onay Parametreleri
+        self.ai_confirm_min_ta_score = ai_confirm_min_ta_score if ai_confirm_min_ta_score is not None else settings.AI_CONFIRM_MIN_TA_SCORE
+        self.ai_confirm_min_quality_score = ai_confirm_min_quality_score if ai_confirm_min_quality_score is not None else settings.AI_CONFIRM_MIN_QUALITY_SCORE
+        self.ai_confirm_min_ema_spread_1 = ai_confirm_min_ema_spread_1 if ai_confirm_min_ema_spread_1 is not None else settings.AI_CONFIRM_MIN_EMA_SPREAD_1
+        self.ai_confirm_min_ema_spread_2 = ai_confirm_min_ema_spread_2 if ai_confirm_min_ema_spread_2 is not None else settings.AI_CONFIRM_MIN_EMA_SPREAD_2
+        self.ai_confirm_min_volume_ratio = ai_confirm_min_volume_ratio if ai_confirm_min_volume_ratio is not None else settings.AI_CONFIRM_MIN_VOLUME_RATIO
+        self.ai_confirm_min_price_momentum = ai_confirm_min_price_momentum if ai_confirm_min_price_momentum is not None else settings.AI_CONFIRM_MIN_PRICE_MOMENTUM
+        self.ai_confirm_min_ema_momentum = ai_confirm_min_ema_momentum if ai_confirm_min_ema_momentum is not None else settings.AI_CONFIRM_MIN_EMA_MOMENTUM
+        self.ai_confirm_min_adx = ai_confirm_min_adx if ai_confirm_min_adx is not None else settings.AI_CONFIRM_MIN_ADX
+        
+        # AI Zarar/Kar Eşikleri
+        self.ai_confirm_loss_5pct_ta_score = ai_confirm_loss_5pct_ta_score if ai_confirm_loss_5pct_ta_score is not None else settings.AI_CONFIRM_LOSS_5PCT_TA_SCORE
+        self.ai_confirm_loss_2pct_ta_score = ai_confirm_loss_2pct_ta_score if ai_confirm_loss_2pct_ta_score is not None else settings.AI_CONFIRM_LOSS_2PCT_TA_SCORE
+        self.ai_confirm_profit_ta_score = ai_confirm_profit_ta_score if ai_confirm_profit_ta_score is not None else settings.AI_CONFIRM_PROFIT_TA_SCORE
+        
+        # AI Risk Değerlendirme
+        self.ai_risk_volatility_threshold = ai_risk_volatility_threshold if ai_risk_volatility_threshold is not None else settings.AI_RISK_VOLATILITY_THRESHOLD
+        self.ai_risk_volume_spike_threshold = ai_risk_volume_spike_threshold if ai_risk_volume_spike_threshold is not None else settings.AI_RISK_VOLUME_SPIKE_THRESHOLD
+        
+        # Global Risk
+        self.global_max_position_size_pct = global_max_position_size_pct if global_max_position_size_pct is not None else settings.GLOBAL_MAX_POSITION_SIZE_PCT
+        self.global_max_open_positions = global_max_open_positions if global_max_open_positions is not None else settings.GLOBAL_MAX_OPEN_POSITIONS
+        self.global_max_portfolio_drawdown_pct = global_max_portfolio_drawdown_pct if global_max_portfolio_drawdown_pct is not None else settings.GLOBAL_MAX_PORTFOLIO_DRAWDOWN_PCT
+        self.global_max_daily_loss_pct = global_max_daily_loss_pct if global_max_daily_loss_pct is not None else settings.GLOBAL_MAX_DAILY_LOSS_PCT
+        
+        # Sistem Parametreleri
+        self.min_time_between_trades_sec = min_time_between_trades_sec if min_time_between_trades_sec is not None else settings.MOMENTUM_MIN_TIME_BETWEEN_TRADES_SEC
+        self.min_trade_amount_usdt = min_trade_amount_usdt if min_trade_amount_usdt is not None else settings.MIN_TRADE_AMOUNT_USDT
+        
         self.last_trade_time = None
         self.position_entry_reasons = {}
-        
-        # AI Integration - CONFIG'den
-        self.ai_provider = AiSignalProvider() if settings.AI_ASSISTANCE_ENABLED else None
-        
-        logger.info(f"✅ {self.strategy_name} Strategy initialized from CONFIG")
-        logger.info(f"   Technical: EMA({self.ema_short},{self.ema_medium},{self.ema_long}), RSI({self.rsi_period}), ADX({self.adx_period})")
-        logger.info(f"   Position: {self.base_position_pct}% base, ${self.min_position_usdt}-${self.max_position_usdt}, Max: {self.max_positions}")
-        logger.info(f"   Buy Quality Min: {settings.MOMENTUM_BUY_MIN_QUALITY_SCORE}, AI: {'ON' if self.ai_provider else 'OFF'}")
 
+        # --- AI Provider Kurulumu ---
+        # Optimizasyondan gelen AI parametrelerini bir sözlükte topla
+        ai_param_overrides = {
+            "ai_assistance_enabled": settings.AI_ASSISTANCE_ENABLED, # Optimizasyon sırasında AI hep açık olsun
+            "ai_confidence_threshold": self.ai_confidence_threshold,
+            "ai_momentum_confidence_override": self.ai_momentum_confidence_override,
+            "ai_weight_trend_main": self.ai_weight_trend_main,
+            "ai_weight_trend_long": self.ai_weight_trend_long,
+            "ai_weight_volume": self.ai_weight_volume,
+            "ai_weight_divergence": self.ai_weight_divergence,
+            "ai_standalone_thresh_strong_buy": self.ai_standalone_thresh_strong_buy,
+            "ai_standalone_thresh_buy": self.ai_standalone_thresh_buy,
+            "ai_standalone_thresh_sell": self.ai_standalone_thresh_sell,
+            "ai_standalone_thresh_strong_sell": self.ai_standalone_thresh_strong_sell,
+            "ai_confirm_min_ta_score": self.ai_confirm_min_ta_score,
+            "ai_confirm_min_quality_score": self.ai_confirm_min_quality_score,
+            "ai_confirm_min_ema_spread_1": self.ai_confirm_min_ema_spread_1,
+            "ai_confirm_min_ema_spread_2": self.ai_confirm_min_ema_spread_2,
+            "ai_confirm_min_volume_ratio": self.ai_confirm_min_volume_ratio,
+            "ai_confirm_min_price_momentum": self.ai_confirm_min_price_momentum,
+            "ai_confirm_min_ema_momentum": self.ai_confirm_min_ema_momentum,
+            "ai_confirm_min_adx": self.ai_confirm_min_adx,
+            "ai_confirm_loss_5pct_ta_score": self.ai_confirm_loss_5pct_ta_score,
+            "ai_confirm_loss_2pct_ta_score": self.ai_confirm_loss_2pct_ta_score,
+            "ai_confirm_profit_ta_score": self.ai_confirm_profit_ta_score,
+            "ai_risk_volatility_threshold": self.ai_risk_volatility_threshold,
+            "ai_risk_volume_spike_threshold": self.ai_risk_volume_spike_threshold
+            # Not: config.py'de olan ancak optimizasyonda olmayan diğer AI parametreleri
+            # (örn: AI_TA_EMA_PERIODS) varsayılan değerlerini alacaktır.
+        }
+        
+        if ai_provider_instance:
+            self.ai_provider = ai_provider_instance
+        else:
+            self.ai_provider = AiSignalProvider(overrides=ai_param_overrides) if settings.AI_ASSISTANCE_ENABLED else None
+        
+        logger.info(f"✅ {self.strategy_name} Strategy initialized for {self.symbol}")
+        logger.info(f"   Technical: EMA({self.ema_short},{self.ema_medium},{self.ema_long}), RSI({self.rsi_period}), ADX({self.adx_period})")
+        logger.info(f"   Position: {self.base_position_pct}% base, ${self.min_position_usdt}-${self.max_position_usdt}, Max Pos: {self.max_positions}")
+        logger.info(f"   Buy Quality Min: {self.buy_min_quality_score}, AI: {'ON' if self.ai_provider and self.ai_provider.is_enabled else 'OFF'}"
+                    )
+        
     async def calculate_indicators(self, df: pd.DataFrame) -> Optional[pd.DataFrame]:
-        """Calculate all technical indicators efficiently with error handling"""
-        if len(df) < 50:
+        """Daha güçlü ve doğrulamalı indikatör hesaplama metodu."""
+        
+        # --- Parametre Doğrulama ---
+        # Optimizasyon sırasında None gelme ihtimaline karşı parametreleri kontrol et
+        required_params = {
+            "ema_long": self.ema_long,
+            "rsi_period": self.rsi_period,
+            "adx_period": self.adx_period,
+            "volume_sma_period": self.volume_sma_period,
+            "atr_period": self.atr_period,
+            "ema_short": self.ema_short,
+            "ema_medium": self.ema_medium
+        }
+        for name, value in required_params.items():
+            if value is None or not isinstance(value, (int, float)) or value <= 0:
+                # Eğer bir parametre None ise veya geçersizse, hatayı logla ve None dön.
+                # Bu, programın çökmesini engeller ve sorunun kaynağını netleştirir.
+                logger.error(f"[{self.strategy_name}] Geçersiz indikatör parametresi: '{name}' değeri '{value}'. Optimizasyon ayarlarını kontrol edin.")
+                return None
+        
+        # Gerekli veri uzunluğunu doğrulanmış parametrelerle güvenli bir şekilde hesapla
+        min_data_length = max(self.ema_long, self.rsi_period, self.adx_period, self.volume_sma_period, 50)
+        if len(df) < min_data_length:
+            logger.debug(f"[{self.strategy_name}] İndikatörler için yeterli veri yok: {len(df)} bar, gerekli: {min_data_length} bar")
             return None
             
         try:
-            # Pandas TA için veri kopyalama (KeyboardInterrupt sorununu önler)
             df_copy = df.copy()
             indicators = pd.DataFrame(index=df_copy.index)
             
-            # Price data
             indicators['close'] = df_copy['close']
             indicators['volume'] = df_copy['volume']
             indicators['high'] = df_copy['high'] 
             indicators['low'] = df_copy['low']
             
-            # EMAs - Error handling eklendi
-            try:
-                indicators['ema_short'] = ta.ema(df_copy['close'], length=self.ema_short)
-                indicators['ema_medium'] = ta.ema(df_copy['close'], length=self.ema_medium)
-                indicators['ema_long'] = ta.ema(df_copy['close'], length=self.ema_long)
-            except (KeyboardInterrupt, SystemExit):
-                raise  # KeyboardInterrupt'ı yeniden fırlat
-            except Exception as e:
-                logger.error(f"EMA calculation error: {e}")
-                return None
+            # Parametrelerin geçerli olduğu artık bilindiği için güvenle kullanabiliriz.
+            indicators['ema_short'] = ta.ema(df_copy['close'], length=self.ema_short)
+            indicators['ema_medium'] = ta.ema(df_copy['close'], length=self.ema_medium)
+            indicators['ema_long'] = ta.ema(df_copy['close'], length=self.ema_long)
+            indicators['rsi'] = ta.rsi(df_copy['close'], length=self.rsi_period)
             
-            # RSI
-            try:
-                indicators['rsi'] = ta.rsi(df_copy['close'], length=self.rsi_period)
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except Exception as e:
-                logger.debug(f"RSI calculation warning: {e}")
-                indicators['rsi'] = 50.0  # Fallback value
+            adx_result = ta.adx(df_copy['high'], df_copy['low'], df_copy['close'], length=self.adx_period)
+            if adx_result is not None and not adx_result.empty:
+                indicators['adx'] = adx_result.iloc[:, 0]
+            else:
+                indicators['adx'] = 20.0 
             
-            # ADX for trend strength
-            try:
-                adx_result = ta.adx(df_copy['high'], df_copy['low'], df_copy['close'], length=self.adx_period)
-                if adx_result is not None and not adx_result.empty:
-                    indicators['adx'] = adx_result.iloc[:, 0]
-                else:
-                    indicators['adx'] = 20.0  # Fallback
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except Exception as e:
-                logger.debug(f"ADX calculation warning: {e}")
-                indicators['adx'] = 20.0  # Fallback
+            macd_result = ta.macd(df_copy['close'])
+            if macd_result is not None and not macd_result.empty:
+                indicators['macd'] = macd_result.iloc[:, 0]
+                indicators['macd_signal'] = macd_result.iloc[:, 1]
+                indicators['macd_hist'] = macd_result.iloc[:, 2]
+            else:
+                indicators['macd'], indicators['macd_signal'], indicators['macd_hist'] = 0.0, 0.0, 0.0
             
-            # MACD
-            try:
-                macd_result = ta.macd(df_copy['close'])
-                if macd_result is not None and not macd_result.empty:
-                    indicators['macd'] = macd_result.iloc[:, 0]
-                    indicators['macd_signal'] = macd_result.iloc[:, 1]
-                    indicators['macd_hist'] = macd_result.iloc[:, 2]
-                else:
-                    indicators['macd'] = 0.0
-                    indicators['macd_signal'] = 0.0
-                    indicators['macd_hist'] = 0.0
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except Exception as e:
-                logger.debug(f"MACD calculation warning: {e}")
-                indicators['macd'] = 0.0
-                indicators['macd_signal'] = 0.0
-                indicators['macd_hist'] = 0.0
+            indicators['volume_sma'] = ta.sma(df_copy['volume'], length=self.volume_sma_period)
+            indicators['volume_ratio'] = (indicators['volume'] / indicators['volume_sma'].replace(0, 1e-9)).fillna(1.0)
             
-            # Volume analysis
-            try:
-                indicators['volume_sma'] = ta.sma(df_copy['volume'], length=self.volume_sma_period)
-                indicators['volume_ratio'] = indicators['volume'] / indicators['volume_sma']
-                indicators['volume_ratio'] = indicators['volume_ratio'].fillna(1.0)
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except Exception:
-                indicators['volume_ratio'] = 1.0
+            indicators['atr'] = ta.atr(df_copy['high'], df_copy['low'], df_copy['close'], length=self.atr_period)
+            indicators['resistance'] = df_copy['high'].rolling(window=20).max()
+            indicators['support'] = df_copy['low'].rolling(window=20).min()
             
-            # ATR for volatility
-            try:
-                indicators['atr'] = ta.atr(df_copy['high'], df_copy['low'], df_copy['close'], length=self.atr_period)
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except Exception:
-                indicators['atr'] = df_copy['close'] * 0.02  # 2% fallback
-            
-            # Support/Resistance levels
-            try:
-                indicators['resistance'] = df_copy['high'].rolling(window=20).max()
-                indicators['support'] = df_copy['low'].rolling(window=20).min()
-            except (KeyboardInterrupt, SystemExit):
-                raise
-            except Exception:
-                indicators['resistance'] = df_copy['close']
-                indicators['support'] = df_copy['close']
-            
-            return indicators.tail(2)  # Return last 2 bars
+            return indicators.tail(2)
             
         except (KeyboardInterrupt, SystemExit):
-            logger.info("🛑 Indicator calculation interrupted by user")
-            raise  # KeyboardInterrupt'ı tekrar fırlat
+            logger.info(f"🛑 [{self.strategy_name}] İndikatör hesaplaması kullanıcı tarafından durduruldu.")
+            raise 
         except Exception as e:
-            logger.error(f"[{self.strategy_name}] Indicator calculation error: {e}")
+            logger.error(f"[{self.strategy_name}] İndikatör hesaplama hatası: {e}", exc_info=True)
             return None
-
-    def calculate_position_size(self, current_price: float) -> float:
-        """🚀 CONFIG BAZLI DİNAMİK POSITION SIZING"""
-        available_usdt = self.portfolio.get_available_usdt()
         
-        # CONFIG'DEN performance thresholds
+    def calculate_position_size(self, current_price: float) -> float:
+        """Optimized position sizing with performance-based adjustments"""
+        available_usdt = self.portfolio.get_available_usdt()
         initial_capital = self.portfolio.initial_capital_usdt
         current_portfolio_value = self.portfolio.get_total_portfolio_value_usdt(current_price)
-        profit_pct = (current_portfolio_value - initial_capital) / initial_capital
         
-        # CONFIG'DEN position sizing based on performance
-        if profit_pct > settings.MOMENTUM_PERF_HIGH_PROFIT_THRESHOLD:
-            base_size_pct = settings.MOMENTUM_SIZE_HIGH_PROFIT_PCT
-            logger.info(f"🔥 HIGH PROFIT MODE: {profit_pct*100:.1f}% - Using {base_size_pct}% position size")
-        elif profit_pct > settings.MOMENTUM_PERF_GOOD_PROFIT_THRESHOLD:
-            base_size_pct = settings.MOMENTUM_SIZE_GOOD_PROFIT_PCT
-            logger.info(f"💰 GOOD PROFIT MODE: {profit_pct*100:.1f}% - Using {base_size_pct}% position size")
-        elif profit_pct > settings.MOMENTUM_PERF_NORMAL_PROFIT_THRESHOLD:
-            base_size_pct = settings.MOMENTUM_SIZE_NORMAL_PROFIT_PCT
-        elif profit_pct > settings.MOMENTUM_PERF_BREAKEVEN_THRESHOLD:
-            base_size_pct = settings.MOMENTUM_SIZE_BREAKEVEN_PCT
+        profit_pct = 0.0
+        if initial_capital > 0:
+            profit_pct = (current_portfolio_value - initial_capital) / initial_capital
+        
+        # Performansa dayalı yüzde seçimi - artık self parametrelerini kullanıyor
+        if profit_pct > self.perf_high_profit_threshold:
+            base_size_pct = self.size_high_profit_pct
+        elif profit_pct > self.perf_good_profit_threshold:
+            base_size_pct = self.size_good_profit_pct
+        elif profit_pct > self.perf_normal_profit_threshold:
+            base_size_pct = self.size_normal_profit_pct
+        elif profit_pct > self.perf_breakeven_threshold:
+            base_size_pct = self.size_breakeven_pct
         else:
-            base_size_pct = settings.MOMENTUM_SIZE_LOSS_PCT
-            logger.info(f"⚠️ LOSS MODE: {profit_pct*100:.1f}% - Using smaller {base_size_pct}% position size")
+            base_size_pct = self.size_loss_pct
         
-        # Calculate position amount
         base_amount = available_usdt * (base_size_pct / 100.0)
+        position_amount = max(self.min_position_usdt, min(base_amount, self.max_position_usdt))
         
-        # CONFIG'den limits
-        min_position = settings.MOMENTUM_SIZE_MIN_USD
-        max_position = settings.MOMENTUM_SIZE_MAX_USD
-        position_amount = max(min_position, min(base_amount, max_position))
-        
-        # CONFIG'den max balance percentage
-        max_safe_amount = available_usdt * (settings.MOMENTUM_SIZE_MAX_BALANCE_PCT / 100.0)
+        max_safe_amount = available_usdt * (self.size_max_balance_pct / 100.0)
         position_amount = min(position_amount, max_safe_amount)
         
-        # Final backup check
-        if position_amount > available_usdt * 0.9:
-            position_amount = available_usdt * 0.9
+        if position_amount > available_usdt * 0.95:
+            position_amount = available_usdt * 0.95
             
-        logger.debug(f"💵 Position Calc: ${position_amount:.0f} ({base_size_pct:.0f}% of ${available_usdt:.0f}) | P&L: {profit_pct*100:+.1f}%")
         return position_amount
 
-    def calculate_stop_loss(self, entry_price: float, indicators: pd.DataFrame) -> float:
-        """Calculate adaptive stop-loss for larger positions"""
-        # Base stop-loss for larger positions (tighter)
-        base_sl_pct = 0.006  # 0.6%
+    def calculate_stop_loss(self, entry_price: float, indicators: Optional[pd.DataFrame]) -> float:
+        """Calculate dynamic stop loss using optimized parameters"""
+        base_sl_pct = self.max_loss_pct
         
-        # Adjust for volatility
         if indicators is not None and 'atr' in indicators.columns:
-            current_atr = indicators.iloc[-1]['atr']
-            if pd.notna(current_atr):
+            current_atr = indicators.iloc[-1].get('atr')
+            if pd.notna(current_atr) and entry_price > 0:
                 volatility_ratio = current_atr / entry_price
-                if volatility_ratio > 0.02:  # High volatility
-                    base_sl_pct = 0.008  # Wider SL
-                elif volatility_ratio < 0.01:  # Low volatility  
-                    base_sl_pct = 0.005  # Tighter SL
+                if volatility_ratio > 0.025:
+                    base_sl_pct = self.max_loss_pct * 1.5
+                elif volatility_ratio < 0.008:
+                    base_sl_pct = self.max_loss_pct * 0.75
         
-        # Calculate final stop-loss
         sl_price = entry_price * (1 - base_sl_pct)
-        
-        logger.debug(f"[{self.strategy_name}] Stop-loss: ${sl_price:.2f} ({base_sl_pct*100:.2f}% from ${entry_price:.2f})")
         return sl_price
 
     async def should_sell(self, position: Position, df: pd.DataFrame) -> Tuple[bool, str, Dict[str, Any]]:
-        """💎 CONFIG BAZLI PHASE SİSTEMİ - Context bilgileriyle birlikte!"""
+        """Enhanced sell logic with optimized parameters"""
         current_bar = df.iloc[-1]
         current_price = current_bar['close']
         
-        # Context dictionary - satım bilgilerini topla
-        sell_context = {
-            "current_price": current_price,
-            "position_id": position.position_id,
-            "entry_price": position.entry_price,
-            "indicators": {}
+        sell_context: Dict[str, Any] = {
+            "current_price": current_price, "position_id": position.position_id,
+            "entry_price": position.entry_price, "indicators": {}
         }
         
-        # Backtest için doğru zaman hesabı
-        if hasattr(self, '_current_backtest_time'):
-            current_time = self._current_backtest_time
-        else:
-            current_time = datetime.now(timezone.utc)
+        current_time = getattr(self, '_current_backtest_time', datetime.now(timezone.utc))
         
-        # Position metrics
-        entry_time = datetime.fromisoformat(position.timestamp.replace('Z', '+00:00'))
-        position_age_minutes = (current_time.timestamp() - entry_time.timestamp()) / 60 if hasattr(current_time, 'timestamp') else 0
-        
-        # Profit calculations
+        position_age_minutes = 0.0
+        if position.timestamp:
+            try:
+                entry_time = datetime.fromisoformat(position.timestamp.replace('Z', '+00:00'))
+                if current_time.tzinfo is None:
+                    current_time = current_time.replace(tzinfo=timezone.utc)
+                position_age_minutes = (current_time - entry_time).total_seconds() / 60.0
+            except Exception as e:
+                logger.warning(f"Error calculating position age for {position.position_id}: {e}")
+
         potential_gross = abs(position.quantity_btc) * current_price
         potential_fee = potential_gross * settings.FEE_SELL
         potential_net = potential_gross - potential_fee
-        profit_usd = potential_net - position.entry_cost_usdt_with_fee
-        profit_pct = profit_usd / position.entry_cost_usdt_with_fee
         
-        # Context'e bilgileri ekle
-        sell_context["position_age_minutes"] = position_age_minutes
-        sell_context["profit_usd"] = profit_usd
-        sell_context["profit_pct"] = profit_pct
-        sell_context["price_change"] = (current_price - position.entry_price) / position.entry_price
-        
-        position_size = position.entry_cost_usdt_with_fee
-        
-        # İndikatörleri context'e ekle
+        profit_usd = potential_net - position.entry_cost_usdt_total 
+        profit_pct = (profit_usd / position.entry_cost_usdt_total) * 100 if position.entry_cost_usdt_total > 0 else 0
+
+        sell_context.update({
+            "position_age_minutes": position_age_minutes,
+            "profit_usd": profit_usd,
+            "profit_pct": profit_pct,
+            "price_change_pct": (current_price - position.entry_price) / position.entry_price * 100 if position.entry_price > 0 else 0
+        })
+
+        # İndikatörleri hesapla
         indicators = await self.calculate_indicators(df)
         if indicators is not None and not indicators.empty:
             current_indicators = indicators.iloc[-1]
-            sell_context["indicators"]["rsi"] = current_indicators.get('rsi', 50)
-            sell_context["indicators"]["adx"] = current_indicators.get('adx', 20)
-            sell_context["indicators"]["volume_ratio"] = current_indicators.get('volume_ratio', 1.0)
+            sell_context["indicators"].update({
+                "rsi": current_indicators.get('rsi', 50),
+                "adx": current_indicators.get('adx', 20),
+                "volume_ratio": current_indicators.get('volume_ratio', 1.0)
+            })
 
-        # ==============================================
-        # 🛡️ CONFIG'DEN MİNİMUM TUTMA SÜRESİ!
-        # ==============================================
-        MIN_HOLD_MINUTES = settings.MOMENTUM_SELL_MIN_HOLD_MINUTES  # Config'den 25 dakika
-        
-        if position_age_minutes < MIN_HOLD_MINUTES:
-            # CONFIG'DEN felaket zarar eşiği
-            if profit_pct < settings.MOMENTUM_SELL_CATASTROPHIC_LOSS_PCT:  # Config'den -0.03
-                return True, f"EMERGENCY_EXIT_CATASTROPHIC_LOSS_{profit_pct*100:.1f}%", sell_context
+        # Minimum tutma süresi kontrolü
+        if position_age_minutes < self.sell_min_hold_minutes:
+            if profit_pct < self.sell_catastrophic_loss_pct * 100:
+                return True, f"EMERGENCY_EXIT_CATASTROPHIC_LOSS_{profit_pct:.1f}%", sell_context
             else:
-                # Yoksa SABRET!
-                return False, f"FORCED_HOLD_{position_age_minutes:.0f}min_of_{MIN_HOLD_MINUTES}min", sell_context
+                return False, f"FORCED_HOLD_{position_age_minutes:.0f}m_of_{self.sell_min_hold_minutes}m", sell_context
         
-        # ==============================================
-        # 🎯 CONFIG'DEN PREMIUM PROFIT LEVELS!
-        # ==============================================
-        
-        if profit_usd >= settings.MOMENTUM_SELL_PREMIUM_EXCELLENT:  # Config'den $5+
-            return True, f"PREMIUM_EXCELLENT_PROFIT_{settings.MOMENTUM_SELL_PREMIUM_EXCELLENT:.0f}_{profit_usd:.2f}", sell_context
-        elif profit_usd >= settings.MOMENTUM_SELL_PREMIUM_GREAT:  # Config'den $3+
-            return True, f"PREMIUM_GREAT_PROFIT_{settings.MOMENTUM_SELL_PREMIUM_GREAT:.0f}_{profit_usd:.2f}", sell_context
-        elif profit_usd >= settings.MOMENTUM_SELL_PREMIUM_GOOD:  # Config'den $2+
-            return True, f"PREMIUM_GOOD_PROFIT_{settings.MOMENTUM_SELL_PREMIUM_GOOD:.0f}_{profit_usd:.2f}", sell_context
+        # Premium kar seviyeleri
+        if profit_usd >= self.sell_premium_excellent:
+            return True, f"PREMIUM_EXCELLENT_PROFIT_${profit_usd:.2f}", sell_context
+        elif profit_usd >= self.sell_premium_great:
+            return True, f"PREMIUM_GREAT_PROFIT_${profit_usd:.2f}", sell_context
+        elif profit_usd >= self.sell_premium_good:
+            return True, f"PREMIUM_GOOD_PROFIT_${profit_usd:.2f}", sell_context
 
-        # ==============================================
-        # 📊 CONFIG BAZLI PHASE SYSTEM!
-        # ==============================================
-        if 25 <= position_age_minutes <= 60:
-            # PHASE 1: CONFIG'DEN HEDEFLER
-            if profit_usd >= settings.MOMENTUM_SELL_PHASE1_EXCELLENT:  # Config'den $1.5
-                return True, f"PHASE1_EXCELLENT_{settings.MOMENTUM_SELL_PHASE1_EXCELLENT:.2f}_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
-            elif profit_usd >= settings.MOMENTUM_SELL_PHASE1_GOOD:  # Config'den $1.0
-                return True, f"PHASE1_GOOD_{settings.MOMENTUM_SELL_PHASE1_GOOD:.2f}_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
-            
-            # PHASE 1 zarar koruması - CONFIG'DEN
-            if profit_usd <= settings.MOMENTUM_SELL_PHASE1_LOSS_PROTECTION:  # Config'den -$2
-                return True, f"PHASE1_LOSS_PROTECTION_{settings.MOMENTUM_SELL_PHASE1_LOSS_PROTECTION:.2f}_{profit_usd:.2f}", sell_context
-        
+        # Fazlı satış mantığı
+        if self.sell_min_hold_minutes <= position_age_minutes <= 60:
+            if profit_usd >= self.sell_phase1_excellent: 
+                return True, f"P1_EXC_PROFIT_${profit_usd:.2f}", sell_context
+            if profit_usd >= self.sell_phase1_good: 
+                return True, f"P1_GOOD_PROFIT_${profit_usd:.2f}", sell_context
+            if profit_usd <= self.sell_phase1_loss_protection: 
+                return True, f"P1_LOSS_PROT_${profit_usd:.2f}", sell_context
         elif 60 < position_age_minutes <= 120:
-            # PHASE 2: CONFIG'DEN HEDEFLER
-            if profit_usd >= settings.MOMENTUM_SELL_PHASE2_EXCELLENT:  # Config'den $1.0
-                return True, f"PHASE2_EXCELLENT_{settings.MOMENTUM_SELL_PHASE2_EXCELLENT:.2f}_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
-            elif profit_usd >= settings.MOMENTUM_SELL_PHASE2_GOOD:  # Config'den $0.75
-                return True, f"PHASE2_GOOD_{settings.MOMENTUM_SELL_PHASE2_GOOD:.2f}_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
-            elif profit_usd >= settings.MOMENTUM_SELL_PHASE2_DECENT and position_age_minutes >= 90:  # Config'den $0.50 (90dk+)
-                return True, f"PHASE2_DECENT_{settings.MOMENTUM_SELL_PHASE2_DECENT:.2f}_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
-            
-            # PHASE 2 zarar koruması - CONFIG'DEN
-            if profit_usd <= settings.MOMENTUM_SELL_PHASE2_LOSS_PROTECTION:  # Config'den -$1.5
-                return True, f"PHASE2_LOSS_PROTECTION_{settings.MOMENTUM_SELL_PHASE2_LOSS_PROTECTION:.2f}_{profit_usd:.2f}", sell_context
-        
+            if profit_usd >= self.sell_phase2_excellent: 
+                return True, f"P2_EXC_PROFIT_${profit_usd:.2f}", sell_context
+            if profit_usd >= self.sell_phase2_good: 
+                return True, f"P2_GOOD_PROFIT_${profit_usd:.2f}", sell_context
+            if profit_usd <= self.sell_phase2_loss_protection: 
+                return True, f"P2_LOSS_PROT_${profit_usd:.2f}", sell_context
         elif 120 < position_age_minutes <= 180:
-            # PHASE 3: CONFIG'DEN HEDEFLER
-            if profit_usd >= settings.MOMENTUM_SELL_PHASE3_EXCELLENT:  # Config'den $0.75
-                return True, f"PHASE3_EXCELLENT_{settings.MOMENTUM_SELL_PHASE3_EXCELLENT:.2f}_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
-            elif profit_usd >= settings.MOMENTUM_SELL_PHASE3_GOOD:  # Config'den $0.50
-                return True, f"PHASE3_GOOD_{settings.MOMENTUM_SELL_PHASE3_GOOD:.2f}_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
-            elif profit_usd >= settings.MOMENTUM_SELL_PHASE3_DECENT:  # Config'den $0.25
-                return True, f"PHASE3_DECENT_{settings.MOMENTUM_SELL_PHASE3_DECENT:.2f}_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
-            
-            # PHASE 3 kırılma noktası koruması - CONFIG'DEN
-            elif settings.MOMENTUM_SELL_PHASE3_BREAKEVEN_MIN <= profit_usd <= settings.MOMENTUM_SELL_PHASE3_BREAKEVEN_MAX:
-                return True, f"PHASE3_BREAKEVEN_PROTECTION_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
-            
-            # PHASE 3 zarar koruması - CONFIG'DEN
-            if profit_usd <= settings.MOMENTUM_SELL_PHASE3_LOSS_PROTECTION:  # Config'den -$1
-                return True, f"PHASE3_LOSS_PROTECTION_{settings.MOMENTUM_SELL_PHASE3_LOSS_PROTECTION:.2f}_{profit_usd:.2f}", sell_context
+            if profit_usd >= self.sell_phase3_excellent: 
+                return True, f"P3_EXC_PROFIT_${profit_usd:.2f}", sell_context
+            if profit_usd >= self.sell_phase3_good: 
+                return True, f"P3_GOOD_PROFIT_${profit_usd:.2f}", sell_context
+            if self.sell_phase3_breakeven_min <= profit_usd <= self.sell_phase3_breakeven_max: 
+                return True, f"P3_BREAKEVEN_${profit_usd:.2f}", sell_context
+            if profit_usd <= self.sell_phase3_loss_protection: 
+                return True, f"P3_LOSS_PROT_${profit_usd:.2f}", sell_context
+        elif position_age_minutes >= self.sell_phase4_force_exit_minutes:
+            return True, f"P4_FORCE_EXIT_{position_age_minutes:.0f}m_PROFIT_${profit_usd:.2f}", sell_context
         
-        else:  # 180+ dakika - PHASE 4
-            # PHASE 4: CONFIG'DEN HEDEFLER
-            if profit_usd >= settings.MOMENTUM_SELL_PHASE4_EXCELLENT:  # Config'den $0.50
-                return True, f"PHASE4_EXCELLENT_{settings.MOMENTUM_SELL_PHASE4_EXCELLENT:.2f}_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
-            elif profit_usd >= settings.MOMENTUM_SELL_PHASE4_GOOD:  # Config'den $0.25
-                return True, f"PHASE4_GOOD_{settings.MOMENTUM_SELL_PHASE4_GOOD:.2f}_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
-            elif profit_usd >= settings.MOMENTUM_SELL_PHASE4_MINIMAL:  # Config'den $0.10
-                return True, f"PHASE4_MINIMAL_{settings.MOMENTUM_SELL_PHASE4_MINIMAL:.2f}_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
-            
-            # PHASE 4 kırılma noktası koruması - CONFIG'DEN (geniş)
-            elif settings.MOMENTUM_SELL_PHASE4_BREAKEVEN_MIN <= profit_usd <= settings.MOMENTUM_SELL_PHASE4_BREAKEVEN_MAX:
-                return True, f"PHASE4_BREAKEVEN_WIDE_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
-            
-            # ZORLA ÇIKIŞ - CONFIG'DEN
-            if position_age_minutes >= settings.MOMENTUM_SELL_PHASE4_FORCE_EXIT_MINUTES:  # Config'den 240 dakika
-                return True, f"PHASE4_FORCE_EXIT_{settings.MOMENTUM_SELL_PHASE4_FORCE_EXIT_MINUTES}min_{profit_usd:.2f}_{position_age_minutes:.0f}min", sell_context
+        # Mutlak zarar limiti
+        position_entry_cost = position.entry_cost_usdt_total
+        total_trading_cost_estimate = (position_entry_cost * settings.FEE_BUY) + (potential_gross * settings.FEE_SELL)
+        max_acceptable_loss_abs = total_trading_cost_estimate * self.sell_loss_multiplier
+        if profit_usd <= -max_acceptable_loss_abs:
+            return True, f"MAX_LOSS_LIMIT_${profit_usd:.2f}_vs_-${max_acceptable_loss_abs:.2f}", sell_context
         
-        # ==============================================
-        # 🛡️ CONFIG'DEN MUTLAK ZARAR LİMİTİ
-        # ==============================================
-        
-        # İşlem maliyeti hesabı
-        total_trading_cost = (position_size * settings.FEE_BUY) + (potential_gross * settings.FEE_SELL) + (position_size * 0.003)
-        max_acceptable_loss = total_trading_cost * settings.MOMENTUM_SELL_LOSS_MULTIPLIER  # Config'den 4.0 çarpan
-        
-        # MUTLAK ZARAR LİMİTİ
-        if profit_usd <= -max_acceptable_loss:
-            return True, f"ABSOLUTE_LOSS_LIMIT_{profit_usd:.2f}_COST_{max_acceptable_loss:.2f}", sell_context
-        
-        # ==============================================
-        # 📊 CONFIG BAZLI TEKNİK ÇIKIŞLAR
-        # ==============================================
-        
-        if (position_age_minutes >= settings.MOMENTUM_SELL_TECH_MIN_MINUTES and 
-            profit_usd < settings.MOMENTUM_SELL_TECH_MIN_LOSS):  # Config'den 90dk ve -$1.5
-            
-            indicators = await self.calculate_indicators(df)
-            if indicators is not None and not indicators.empty:
-                current_indicators = indicators.iloc[-1]
-                
-                # CONFIG'DEN RSI aşırı satım eşiği
-                rsi = current_indicators.get('rsi')
-                if pd.notna(rsi) and rsi < settings.MOMENTUM_SELL_TECH_RSI_EXTREME:  # Config'den 12
-                    return True, f"TECHNICAL_RSI_EXTREME_OVERSOLD_{settings.MOMENTUM_SELL_TECH_RSI_EXTREME}_{rsi:.1f}_{position_age_minutes:.0f}min", sell_context
-                
-                # EMA trend tamamen kırılması
-                ema_short = current_indicators.get('ema_short')
-                ema_medium = current_indicators.get('ema_medium')
-                ema_long = current_indicators.get('ema_long')
-                if all(pd.notna(x) for x in [ema_short, ema_medium, ema_long]):
-                    if ema_short < ema_medium < ema_long:  # Tam ters trend
-                        return True, f"TECHNICAL_COMPLETE_TREND_REVERSAL_{position_age_minutes:.0f}min", sell_context
-        
-        return False, f"HOLD_WITH_PATIENCE_PHASE{min(4, max(1, int((position_age_minutes-25)/60)+1))}_{position_age_minutes:.0f}min", sell_context
+        return False, f"HOLD_AGE_{position_age_minutes:.0f}m_PNL_${profit_usd:.2f}", sell_context
 
     async def should_buy(self, df: pd.DataFrame) -> Tuple[bool, str, Dict[str, Any]]:
-        """🎯 CONFIG BAZLI BUY LOGIC - All values from config!"""
+        """Enhanced buy logic with optimized parameters"""
         indicators = await self.calculate_indicators(df)
-        if indicators is None or indicators.empty:
-            return False, "No indicators", {}
+        if indicators is None or len(indicators) < 2:
+            return False, "No or insufficient indicators", {}
             
         current = indicators.iloc[-1]
-        previous = indicators.iloc[-2] if len(indicators) > 1 else current
+        previous = indicators.iloc[-2]
         current_price = current['close']
         
-        # Context dictionary
-        buy_context = {
-            "current_price": current_price,
-            "quality_score": 0,
-            "indicators": {},
-            "reason": ""  # Bu satırı ekle
+        buy_context: Dict[str, Any] = {
+            "current_price": current_price, "quality_score": 0, "indicators": {}, 
+            "reason": "", "strategy_name": self.strategy_name
         }
         
-        # Check position limits
         open_positions = self.portfolio.get_open_positions(self.symbol, strategy_name=self.strategy_name)
         if len(open_positions) >= self.max_positions:
             return False, f"Max positions ({len(open_positions)}/{self.max_positions})", buy_context
         
-        # Check available balance
         required_amount = self.calculate_position_size(current_price)
         available_usdt = self.portfolio.get_available_usdt()
         if available_usdt < required_amount:
-            return False, "Insufficient balance", buy_context
+            return False, f"Insufficient balance (need ${required_amount:.2f}, have ${available_usdt:.2f})", buy_context
         
-        # Portfolio performance-based wait times - CONFIG'DEN!
-        portfolio_value = self.portfolio.get_total_portfolio_value_usdt(current_price)
-        profit_pct = (portfolio_value - self.portfolio.initial_capital_usdt) / self.portfolio.initial_capital_usdt
-        buy_context["portfolio_profit_pct"] = profit_pct
+        # Bekleme süresi kontrolü
+        if self.last_trade_time:
+            current_time = getattr(self, '_current_backtest_time', datetime.now(timezone.utc))
+            if current_time.tzinfo is None:
+                current_time = current_time.replace(tzinfo=timezone.utc)
+            seconds_since_last = (current_time - self.last_trade_time).total_seconds()
+            if seconds_since_last < self.min_time_between_trades_sec:
+                return False, f"Wait time {seconds_since_last:.0f}s of {self.min_time_between_trades_sec}s", buy_context
         
-        # CONFIG'DEN wait times
-        if profit_pct > settings.MOMENTUM_PERF_GOOD_PROFIT_THRESHOLD:
-            min_wait_seconds = settings.MOMENTUM_WAIT_PROFIT_5PCT
-        elif profit_pct > settings.MOMENTUM_PERF_NORMAL_PROFIT_THRESHOLD:
-            min_wait_seconds = settings.MOMENTUM_WAIT_PROFIT_2PCT
-        elif profit_pct > settings.MOMENTUM_PERF_BREAKEVEN_THRESHOLD:
-            min_wait_seconds = settings.MOMENTUM_WAIT_BREAKEVEN
-        else:
-            min_wait_seconds = settings.MOMENTUM_WAIT_LOSS
-        
-        buy_context["wait_time_seconds"] = min_wait_seconds
-        
-        # Wait time check
-        if hasattr(self, 'last_trade_time') and self.last_trade_time:
-            if hasattr(self, '_current_backtest_time'):
-                current_time = self._current_backtest_time
-            else:
-                current_time = datetime.now(timezone.utc)
-                
-            if hasattr(current_time, 'timestamp'):
-                time_diff_seconds = (current_time.timestamp() - self.last_trade_time.timestamp()) if hasattr(self.last_trade_time, 'timestamp') else 0
-            else:
-                time_diff_seconds = 0
-            
-            if time_diff_seconds < min_wait_seconds:
-                wait_remaining = min_wait_seconds - time_diff_seconds
-                return False, f"PATIENCE_WAIT_{wait_remaining/60:.0f}min_more", buy_context
-        
-        # ==============================================
-        # 🎯 CONFIG BASED QUALITY SCORING!
-        # ==============================================
         quality_score = 0
+        ema_short, ema_medium, ema_long = current.get('ema_short'), current.get('ema_medium'), current.get('ema_long')
+        buy_context["indicators"].update({"ema_short": ema_short, "ema_medium": ema_medium, "ema_long": ema_long})
+
+        # EMA trend kontrolü
+        if not (pd.notna(ema_short) and pd.notna(ema_medium) and pd.notna(ema_long) and ema_short > ema_medium > ema_long):
+            return False, "EMA_TREND_FAIL", buy_context
         
-        # 1. EMA Trend - CONFIG values
-        ema_short = current['ema_short']
-        ema_medium = current['ema_medium'] 
-        ema_long = current['ema_long']
+        # EMA spread kontrolü
+        ema_spread_1 = (ema_short - ema_medium) / ema_medium if ema_medium else 0
+        ema_spread_2 = (ema_medium - ema_long) / ema_long if ema_long else 0
+        buy_context.update({"ema_spread_1": ema_spread_1, "ema_spread_2": ema_spread_2})
         
-        buy_context["indicators"]["ema_short"] = ema_short
-        buy_context["indicators"]["ema_medium"] = ema_medium
-        buy_context["indicators"]["ema_long"] = ema_long
-        buy_context["ema_trend"] = f"{ema_short:.1f}>{ema_medium:.1f}>{ema_long:.1f}"
-        
-        if pd.isna(ema_short) or pd.isna(ema_medium) or pd.isna(ema_long):
-            return False, "Missing EMA data", buy_context
-            
-        if not (ema_short > ema_medium > ema_long):
-            return False, "EMA trend not aligned", buy_context
-        
-        # EMA spreads - CONFIG values
-        ema_spread_1 = (ema_short - ema_medium) / ema_medium
-        ema_spread_2 = (ema_medium - ema_long) / ema_long
-        
-        buy_context["ema_spread_1"] = ema_spread_1
-        buy_context["ema_spread_2"] = ema_spread_2
-        
-        if ema_spread_1 < settings.MOMENTUM_BUY_MIN_EMA_SPREAD_1 or ema_spread_2 < settings.MOMENTUM_BUY_MIN_EMA_SPREAD_2:
-            return False, f"EMA spread too narrow ({ema_spread_1*100:.4f}%, {ema_spread_2*100:.4f}%)", buy_context
-        
-        # EMA momentum - CONFIG scoring
-        prev_ema_short = previous['ema_short']
-        if pd.notna(prev_ema_short):
+        if ema_spread_1 < self.buy_min_ema_spread_1 or ema_spread_2 < self.buy_min_ema_spread_2:
+            return False, f"EMA_SPREAD_NARROW_{ema_spread_1*100:.3f}%_{ema_spread_2*100:.3f}%", buy_context
+
+        # EMA momentum değerlendirmesi
+        prev_ema_short = previous.get('ema_short')
+        if pd.notna(prev_ema_short) and prev_ema_short > 0:
             ema_momentum = (ema_short - prev_ema_short) / prev_ema_short
             buy_context["ema_momentum"] = ema_momentum
-            
-            if ema_momentum > settings.MOMENTUM_BUY_EMA_MOM_EXCELLENT:
+            if ema_momentum > self.buy_ema_mom_excellent:
                 quality_score += 4
-            elif ema_momentum > settings.MOMENTUM_BUY_EMA_MOM_GOOD:
+            elif ema_momentum > self.buy_ema_mom_good:
                 quality_score += 3
-            elif ema_momentum > settings.MOMENTUM_BUY_EMA_MOM_DECENT:
+            elif ema_momentum > self.buy_ema_mom_decent:
                 quality_score += 2
-            elif ema_momentum > settings.MOMENTUM_BUY_EMA_MOM_MIN:
+            elif ema_momentum > self.buy_ema_mom_min:
                 quality_score += 1
             else:
-                return False, f"EMA momentum insufficient ({ema_momentum*100:.4f}%)", buy_context
-        
-        # 2. RSI - CONFIG ranges
-        rsi = current['rsi']
-        buy_context["rsi"] = rsi
-        buy_context["indicators"]["rsi"] = rsi
-        
-        if pd.notna(rsi):
-            if settings.MOMENTUM_BUY_RSI_EXCELLENT_MIN <= rsi <= settings.MOMENTUM_BUY_RSI_EXCELLENT_MAX:
-                quality_score += 3
-            elif settings.MOMENTUM_BUY_RSI_GOOD_MIN <= rsi <= settings.MOMENTUM_BUY_RSI_GOOD_MAX:
-                quality_score += 2
-            elif rsi > settings.MOMENTUM_BUY_RSI_EXTREME_MAX or rsi < settings.MOMENTUM_BUY_RSI_EXTREME_MIN:
-                return False, f"RSI extreme ({rsi:.1f})", buy_context
-            else:
-                quality_score += 1
-        
-        # 3. ADX - CONFIG levels
-        adx = current['adx']
-        buy_context["adx"] = adx
-        buy_context["indicators"]["adx"] = adx
-        
-        if pd.notna(adx):
-            if adx > settings.MOMENTUM_BUY_ADX_EXCELLENT:
-                quality_score += 3
-            elif adx > settings.MOMENTUM_BUY_ADX_GOOD:
-                quality_score += 2
-            elif adx > settings.MOMENTUM_BUY_ADX_DECENT:
-                quality_score += 1
-        
-        # 4. Volume - CONFIG levels
-        volume_ratio = current.get('volume_ratio', 1.0)
-        buy_context["volume_ratio"] = volume_ratio
-        buy_context["indicators"]["volume_ratio"] = volume_ratio
-        
-        if pd.notna(volume_ratio):
-            if volume_ratio > settings.MOMENTUM_BUY_VOLUME_EXCELLENT:
-                quality_score += 3
-            elif volume_ratio > settings.MOMENTUM_BUY_VOLUME_GOOD:
-                quality_score += 2
-            elif volume_ratio > settings.MOMENTUM_BUY_VOLUME_DECENT:
-                quality_score += 1
-        
-        # 5. MACD
-        macd = current.get('macd')
-        macd_signal = current.get('macd_signal')
-        if pd.notna(macd) and pd.notna(macd_signal):
-            macd_diff = macd - macd_signal
-            buy_context["macd_strength"] = macd_diff
-            buy_context["indicators"]["macd"] = macd
-            buy_context["indicators"]["macd_signal"] = macd_signal
-            
-            if macd > macd_signal:
-                quality_score += 3
-            elif macd > 0:
-                quality_score += 2
-            else:
-                quality_score += 1
-        
-        # 6. Price momentum - CONFIG levels
-        price_change_pct = (current_price - previous['close']) / previous['close']
-        buy_context["price_momentum"] = price_change_pct
-        
-        if price_change_pct > settings.MOMENTUM_BUY_PRICE_MOM_EXCELLENT:
-            quality_score += 3
-        elif price_change_pct > settings.MOMENTUM_BUY_PRICE_MOM_GOOD:
-            quality_score += 2
-        elif price_change_pct >= settings.MOMENTUM_BUY_PRICE_MOM_DECENT:
+                return False, f"EMA_MOM_LOW_{ema_momentum*100:.3f}%", buy_context
+        else:
             quality_score += 1
         
-        # ==============================================
-        # 🎯 CONFIG MINIMUM SCORE CHECK!
-        # ==============================================
-        min_quality_score = settings.MOMENTUM_BUY_MIN_QUALITY_SCORE
+        # RSI değerlendirmesi
+        rsi = current.get('rsi')
+        buy_context["indicators"]["rsi"] = rsi
+        if pd.notna(rsi):
+            if self.buy_rsi_extreme_min < rsi < self.buy_rsi_extreme_max:
+                if self.buy_rsi_excellent_min <= rsi <= self.buy_rsi_excellent_max:
+                    quality_score += 3
+                elif self.buy_rsi_good_min <= rsi <= self.buy_rsi_good_max:
+                    quality_score += 2
+                else:
+                    quality_score += 1
+            else:
+                return False, f"RSI_EXTREME_{rsi:.1f}", buy_context
+        
+        # ADX değerlendirmesi
+        adx = current.get('adx')
+        buy_context["indicators"]["adx"] = adx
+        if pd.notna(adx):
+            if adx > self.buy_adx_excellent:
+                quality_score += 3
+            elif adx > self.buy_adx_good:
+                quality_score += 2
+            elif adx > self.buy_adx_decent:
+                quality_score += 1
+        
+        # Volume değerlendirmesi
+        volume_ratio = current.get('volume_ratio', 1.0)
+        buy_context["indicators"]["volume_ratio"] = volume_ratio
+        if volume_ratio > self.buy_volume_excellent:
+            quality_score += 3
+        elif volume_ratio > self.buy_volume_good:
+            quality_score += 2
+        elif volume_ratio > self.buy_volume_decent:
+            quality_score += 1
+        
+        # Price momentum değerlendirmesi
+        prev_close = previous.get('close')
+        if pd.notna(prev_close) and prev_close > 0:
+            price_momentum = (current_price - prev_close) / prev_close
+            buy_context["price_momentum"] = price_momentum
+            if price_momentum > self.buy_price_mom_excellent:
+                quality_score += 3
+            elif price_momentum > self.buy_price_mom_good:
+                quality_score += 2
+            elif price_momentum > self.buy_price_mom_decent:
+                quality_score += 1
+        
         buy_context["quality_score"] = quality_score
-        buy_context["min_quality_required"] = min_quality_score
+        buy_context["min_quality_required"] = self.buy_min_quality_score
         
-        if quality_score < min_quality_score:
-            return False, f"Quality insufficient ({quality_score}/{min_quality_score})", buy_context
+        if quality_score < self.buy_min_quality_score:
+            return False, f"QUALITY_LOW_Q{quality_score} (MinReq:{self.buy_min_quality_score})", buy_context
         
-        # ==============================================
-        # 🤖 AI CONFIRMATION
-        # ==============================================
+        # AI onayı
+        buy_context["ai_approved"] = "N/A"
         if self.ai_provider:
             ai_confirmation = await self.ai_provider.get_ai_confirmation(
-                current_signal_type="BUY",
-                ohlcv_df=df,
-                context=buy_context
+                current_signal_type="BUY", ohlcv_df=df, context=buy_context
             )
-            
+            buy_context["ai_approved"] = str(ai_confirmation)
             if not ai_confirmation:
-                return False, f"AI_REJECTED_Q{quality_score}_CAUTIOUS", buy_context
+                return False, f"AI_REJECT_Q{quality_score}", buy_context
         
-        # Return statement'ını güncelle
-        buy_context["reason"] = f"CONFIG_BASED_BUY_Q{quality_score}"
-        return True, f"CONFIG_BASED_BUY_Q{quality_score}", buy_context
+        buy_reason_final = f"MOM_BUY_Q{quality_score}"
+        if self.ai_provider and buy_context["ai_approved"] == "True":
+            buy_reason_final += "_AI_OK"
+        
+        buy_context["reason"] = buy_reason_final
+        return True, buy_reason_final, buy_context
 
     async def process_data(self, df: pd.DataFrame) -> None:
-        """Main strategy execution with enhanced position management"""
+        """Main strategy processing logic"""
         try:
             if df.empty:
                 return
@@ -600,81 +757,45 @@ class MomentumStrategy:
             current_bar = df.iloc[-1]
             current_price = current_bar['close']
             
-            # BACKTEST TARİH DÜZELTMESİ
-            if hasattr(self, '_current_backtest_time'):
-                current_time = self._current_backtest_time
-            else:
-                current_time = datetime.now(timezone.utc)
+            current_time_for_process = getattr(self, '_current_backtest_time', datetime.now(timezone.utc))
+            current_time_iso = current_time_for_process.isoformat()
             
-            # Get all open positions for this strategy
-            open_positions = self.portfolio.get_open_positions(
-                self.symbol, 
-                strategy_name=self.strategy_name
-            )
+            # Mevcut pozisyonları kontrol et ve satış kararları ver
+            open_positions = self.portfolio.get_open_positions(self.symbol, strategy_name=self.strategy_name)
             
-            # Portfolio durumu
-            portfolio_value = self.portfolio.get_total_portfolio_value_usdt(current_price)
-            initial_capital = self.portfolio.initial_capital_usdt
-            profit_pct = (portfolio_value - initial_capital) / initial_capital
-            
-            # ==============================================
-            # 1. SELL SIGNALS (Priority: Protect Profits)
-            # ==============================================
-            for position in open_positions:
-                should_sell_flag, sell_reason, sell_context = await self.should_sell(position, df)
+            for position in list(open_positions):
+                should_sell_flag, sell_reason, sell_context_dict = await self.should_sell(position, df)
                 if should_sell_flag:
                     await self.portfolio.execute_sell(
-                        position_to_close=position,
-                        current_price=current_price,
-                        timestamp=current_time.isoformat() if hasattr(current_time, 'isoformat') else str(current_time),
-                        reason=sell_reason,
-                        sell_context=sell_context
+                        position_to_close=position, current_price=current_price,
+                        timestamp=current_time_iso, reason=sell_reason, sell_context=sell_context_dict
                     )
             
-            # ==============================================
-            # 2. BUY SIGNAL (Enhanced with dynamic sizing)
-            # ==============================================
-            should_buy_flag, buy_reason, buy_context = await self.should_buy(df)
-            if should_buy_flag:
-                # Calculate dynamic position size
-                position_amount = self.calculate_position_size(current_price)
-                indicators = await self.calculate_indicators(df)
-                stop_loss_price = self.calculate_stop_loss(current_price, indicators)
-                
-                # Execute buy order - FIXED: reason parameter added
-                new_position = await self.portfolio.execute_buy(
-                    strategy_name=self.strategy_name,
-                    symbol=self.symbol,
-                    current_price=current_price,
-                    timestamp=current_time.isoformat() if hasattr(current_time, 'isoformat') else str(current_time),
-                    reason=buy_reason,  # ✅ FIXED: Missing reason parameter
-                    amount_usdt_override=position_amount,
-                    stop_loss_price_from_strategy=stop_loss_price,
-                    buy_context=buy_context
-                )
-                
-                if new_position:
-                    self.position_entry_reasons[new_position.position_id] = buy_reason
-                    self.last_trade_time = current_time
-            
-            # ==============================================
-            # 3. MINIMAL PORTFOLIO STATUS - Backtest için sadece GEREKLI!
-            # ==============================================
-            if hasattr(self, '_log_counter'):
-                self._log_counter += 1
-            else:
-                self._log_counter = 1
-                
-            # ⚡ BACKTEST için log'ları çok daha az yap!
-            if self._log_counter % 500 == 0:  # 50 → 500 (10x daha az)
-                total_exposure = sum(abs(pos.quantity_btc) * current_price for pos in open_positions)
-                # SADECE trade count log!
-                if len(self.portfolio.closed_trades) > 0:
-                    logger.info(f"💵 Position Update | Portfolio: ${portfolio_value:.0f} ({profit_pct*100:+.1f}%) | "
-                               f"Positions: {len(open_positions)} | Exposure: ${total_exposure:.0f}")
+            # Satıştan sonra pozisyonları yeniden kontrol et
+            open_positions_after_sell = self.portfolio.get_open_positions(self.symbol, strategy_name=self.strategy_name)
+
+            # Yeni alım fırsatlarını değerlendir
+            if len(open_positions_after_sell) < self.max_positions:
+                should_buy_flag, buy_reason_str, buy_context_dict = await self.should_buy(df)
+                if should_buy_flag:
+                    position_amount = self.calculate_position_size(current_price)
+                    indicators_for_sl = await self.calculate_indicators(df)
+                    stop_loss_price = self.calculate_stop_loss(current_price, indicators_for_sl)
+                    
+                    new_position = await self.portfolio.execute_buy(
+                        strategy_name=self.strategy_name, symbol=self.symbol,
+                        current_price=current_price, timestamp=current_time_iso,
+                        reason=buy_reason_str, 
+                        amount_usdt_override=position_amount,
+                        stop_loss_price_from_strategy=stop_loss_price,
+                        buy_context=buy_context_dict
+                    )
+                    if new_position:
+                        self.position_entry_reasons[new_position.position_id] = buy_reason_str
+                        self.last_trade_time = current_time_for_process
                 
         except (KeyboardInterrupt, SystemExit):
-            logger.info("🛑 Strategy processing interrupted by user")
-            raise  # KeyboardInterrupt'ı tekrar fırlat
+            logger.info(f"🛑 [{self.strategy_name}] Strategy processing interrupted by user")
+            raise
         except Exception as e:
             logger.error(f"[{self.strategy_name}] Process data error: {e}", exc_info=True)
