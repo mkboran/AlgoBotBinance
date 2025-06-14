@@ -253,3 +253,9 @@ class AdvancedProfitTaking:
         except Exception as e:
             logger.error(f"Partial sell execution error: {e}")
             return {
+                'success': False,
+                'sell_quantity': 0.0,
+                'remaining_quantity': abs(position.quantity_btc) if hasattr(position, 'quantity_btc') else 0.0,
+                'sell_percentage': 0.0,
+                'reason': f'ERROR: {str(e)}'
+            }
