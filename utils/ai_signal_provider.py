@@ -1988,10 +1988,99 @@ class RevolutionaryAiSignalProvider:
         )
         return np.clip(score, -1.0, 1.0)
 
-    # Keep all existing helper methods and add the new ones as needed
+    def _calculate_trend_strength(self, ohlcv_df: pd.DataFrame, ema_periods: tuple) -> float:
+        """Calculate trend strength using EMAs"""
+        try:
+            if len(ohlcv_df) < max(ema_periods):
+                return 0.0
+            
+            ema_short = ta.ema(ohlcv_df['close'], length=ema_periods[0]).iloc[-1]
+            ema_medium = ta.ema(ohlcv_df['close'], length=ema_periods[1]).iloc[-1]
+            ema_long = ta.ema(ohlcv_df['close'], length=ema_periods[2]).iloc[-1]
+            
+            # EMA alignment score
+            if ema_short > ema_medium > ema_long:
+                alignment = 1.0  # Bullish
+            elif ema_short < ema_medium < ema_long:
+                alignment = -1.0  # Bearish
+            else:
+                alignment = 0.0  # Mixed
+            
+            # EMA spread strength
+            spread = abs(ema_short - ema_long) / ema_long if ema_long > 0 else 0
+            strength = min(1.0, spread * 50)  # Scale spread
+            
+            return alignment * strength
+            
+        except Exception as e:
+            logger.debug(f"Trend strength calculation error: {e}")
+            return 0.0
+
+    def _analyze_volume_profile(self, ohlcv_df: pd.DataFrame) -> float:
+        """Analyze volume profile"""
+        try:
+            if len(ohlcv_df) < 20:
+                return 0.0
+            
+            current_volume = ohlcv_df['volume'].iloc[-1]
+            avg_volume = ohlcv_df['volume'].rolling(20).mean().iloc[-1]
+            volume_ratio = current_volume / avg_volume if avg_volume > 0 else 1
+            
+            # Price-volume correlation
+            price_change = ohlcv_df['close'].pct_change().iloc[-1]
+            volume_change = ohlcv_df['volume'].pct_change().iloc[-1]
+            
+            # Positive correlation = good signal
+            if price_change > 0 and volume_change > 0:
+                correlation_score = 0.8
+            elif price_change < 0 and volume_change > 0:
+                correlation_score = -0.5  # Selling pressure
+            else:
+                correlation_score = 0.3
+            
+            # Combined volume score
+            volume_score = np.tanh((volume_ratio - 1) * 2) * correlation_score
+            return np.clip(volume_score, -1.0, 1.0)
+            
+        except Exception as e:
+            logger.debug(f"Volume analysis error: {e}")
+            return 0.0
+
+    def _calculate_rsi_divergence(self, ohlcv_df: pd.DataFrame, rsi_period: int, lookback: int) -> float:
+        """Calculate RSI divergence"""
+        try:
+            if len(ohlcv_df) < lookback + rsi_period:
+                return 0.0
+            
+            rsi = ta.rsi(ohlcv_df['close'], length=rsi_period)
+            prices = ohlcv_df['close']
+            
+            if rsi is None or rsi.empty:
+                return 0.0
+            
+            # Look for divergence in recent data
+            recent_rsi = rsi.tail(lookback)
+            recent_prices = prices.tail(lookback)
+            
+            # Simple divergence detection
+            price_trend = (recent_prices.iloc[-1] - recent_prices.iloc[0]) / recent_prices.iloc[0]
+            rsi_trend = recent_rsi.iloc[-1] - recent_rsi.iloc[0]
+            
+            # Bullish divergence: price down, RSI up
+            if price_trend < -0.02 and rsi_trend > 5:
+                return 0.7
+            # Bearish divergence: price up, RSI down  
+            elif price_trend > 0.02 and rsi_trend < -5:
+                return -0.7
+            
+            return 0.0
+            
+        except Exception as e:
+            logger.debug(f"RSI divergence calculation error: {e}")
+            return 0.0
+
     def _resample_ohlcv(self, df: pd.DataFrame, timeframe: str) -> Optional[pd.DataFrame]:
-        """Resample OHLCV data to different timeframe (existing method)"""
-        # Keep existing implementation
+        """Resample OHLCV data to different timeframe"""
         if df is None or df.empty:
             logger.debug(f"[{self.__class__.__name__}] _resample_ohlcv: Input DataFrame is empty or None for timeframe '{timeframe}'.")
             return None
@@ -2007,3 +2096,61 @@ class RevolutionaryAiSignalProvider:
         except Exception as e:
             logger.debug(f"Error resampling OHLCV data to {timeframe}: {e}")
             return None
+
+    async def get_standalone_signal(self, ohlcv_df: pd.DataFrame) -> AiSignal:
+        """Get standalone AI signal without context"""
+        try:
+            if not self.is_enabled or ohlcv_df.empty:
+                return AiSignal.NO_OPINION
+            
+            # Get technical analysis score
+            ta_score = self._get_technical_analysis_score(ohlcv_df)
+            
+            # Map score to signal
+            if ta_score >= self.standalone_thresholds['strong_buy']:
+                return AiSignal.STRONG_BUY
+            elif ta_score >= self.standalone_thresholds['buy']:
+                return AiSignal.BUY
+            elif ta_score <= self.standalone_thresholds['strong_sell']:
+                return AiSignal.STRONG_SELL
+            elif ta_score <= self.standalone_thresholds['sell']:
+                return AiSignal.SELL
+            else:
+                return AiSignal.HOLD
+                
+        except Exception as e:
+            logger.debug(f"Standalone signal error: {e}")
+            return AiSignal.NO_OPINION
+
+    async def get_ai_confirmation(self, current_signal_type: str, ohlcv_df: pd.DataFrame, 
+                                context: Optional[Dict[str, Any]] = None) -> bool:
+        """Backward compatibility method"""
+        return await self.get_revolutionary_ai_confirmation(current_signal_type, ohlcv_df, context)
+
+    async def get_market_intelligence(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Backward compatibility method for market intelligence"""
+        try:
+            intel = await self.get_revolutionary_market_intelligence(df)
+            return {
+                "risk_level": intel.risk_level.value,
+                "recommendation": intel.recommendation,
+                "regime": intel.current_regime.value,
+                "confidence": intel.regime_confidence
+            }
+        except Exception as e:
+            return {"risk_level": "MODERATE", "recommendation": "NEUTRAL", "regime": "UNKNOWN", "confidence": 0.5}
+
+
+    
+# Create alias for backward compatibility and main usage
+AiSignalProvider = RevolutionaryAiSignalProvider
+
+# Factory function for easy instantiation
+def create_ai_signal_provider(overrides: Optional[Dict[str, Any]] = None) -> AiSignalProvider:
+    """Factory function to create AI Signal Provider with optional overrides"""
+    return AiSignalProvider(overrides)
+
+if __name__ == "__main__":
+    # Test the AI system
+    ai = create_ai_signal_provider()
+    logger.info(f"🚀 AI Signal Provider Test - Enabled: {ai.is_enabled}")
