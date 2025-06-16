@@ -11,6 +11,394 @@ from utils.portfolio import Portfolio, Position
 from utils.config import settings
 from utils.logger import logger
 from utils.ai_signal_provider import AiSignalProvider
+# ML Enhancement imports - Line 12'den sonra ekle
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.preprocessing import StandardScaler, RobustScaler
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.metrics import mean_squared_error, mean_absolute_error
+import xgboost as xgb
+from collections import deque
+import joblib
+import warnings
+warnings.filterwarnings('ignore')
+
+# Deep Learning imports
+try:
+    import tensorflow as tf
+    from tensorflow.keras.models import Sequential
+    from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization
+    from tensorflow.keras.optimizers import Adam
+    TENSORFLOW_AVAILABLE = True
+except ImportError:
+    TENSORFLOW_AVAILABLE = False
+    print("⚠️ TensorFlow not available. Using traditional ML only.")
+
+
+
+class AdvancedMLPredictor:
+    """🧠 Advanced Machine Learning Prediction Engine"""
+    
+    def __init__(self, lookback_window=100, prediction_horizon=4):
+        self.lookback_window = lookback_window
+        self.prediction_horizon = prediction_horizon
+        self.feature_scaler = RobustScaler()
+        self.target_scaler = StandardScaler()
+        
+        # Model ensemble
+        self.rf_model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42)
+        self.xgb_model = xgb.XGBRegressor(n_estimators=100, max_depth=6, learning_rate=0.1, random_state=42)
+        self.gb_model = GradientBoostingRegressor(n_estimators=100, max_depth=6, learning_rate=0.1, random_state=42)
+        
+        # LSTM model (if TensorFlow available)
+        self.lstm_model = None
+        self.lstm_trained = False
+        
+        # Training data storage
+        self.feature_history = deque(maxlen=1000)
+        self.target_history = deque(maxlen=1000)
+        self.is_trained = False
+        self.training_size = 200
+        
+        # Model weights for ensemble
+        self.model_weights = {'rf': 0.3, 'xgb': 0.4, 'gb': 0.3, 'lstm': 0.0}
+        self.performance_tracking = {'rf': [], 'xgb': [], 'gb': [], 'lstm': []}
+        
+        logger.info("🧠 Advanced ML Predictor initialized")
+    
+    def extract_features(self, df: pd.DataFrame) -> np.ndarray:
+        """Extract comprehensive features for ML prediction"""
+        try:
+            if len(df) < 50:
+                return np.array([])
+            
+            features = []
+            
+            # Price features
+            returns_1 = df['close'].pct_change(1).fillna(0)
+            returns_3 = df['close'].pct_change(3).fillna(0)
+            returns_5 = df['close'].pct_change(5).fillna(0)
+            returns_10 = df['close'].pct_change(10).fillna(0)
+            
+            # Technical indicators
+            rsi = ta.rsi(df['close'], length=14).fillna(50)
+            macd = ta.macd(df['close']).iloc[:, 0].fillna(0)
+            bb = ta.bbands(df['close'], length=20)
+            bb_percent = bb.iloc[:, 4].fillna(0.5) if bb is not None else pd.Series([0.5] * len(df))
+            
+            # Volume features
+            volume_sma = ta.sma(df['volume'], length=20).fillna(df['volume'].mean())
+            volume_ratio = (df['volume'] / volume_sma).fillna(1.0)
+            
+            # Volatility features
+            atr = ta.atr(df['high'], df['low'], df['close'], length=14).fillna(df['close'].std())
+            volatility = returns_1.rolling(20).std().fillna(returns_1.std())
+            
+            # EMA features
+            ema_9 = ta.ema(df['close'], length=9)
+            ema_21 = ta.ema(df['close'], length=21)
+            ema_50 = ta.ema(df['close'], length=50)
+            
+            # Feature combinations (last 20 values)
+            feature_set = np.column_stack([
+                returns_1.tail(20).values,
+                returns_3.tail(20).values,
+                returns_5.tail(20).values,
+                rsi.tail(20).values / 100.0,  # Normalize
+                macd.tail(20).values,
+                bb_percent.tail(20).values,
+                volume_ratio.tail(20).values,
+                volatility.tail(20).values,
+                (df['close'] / ema_9).tail(20).values,
+                (df['close'] / ema_21).tail(20).values,
+                (df['close'] / ema_50).tail(20).values,
+                atr.tail(20).values / df['close'].tail(20).values  # Normalized ATR
+            ])
+            
+            # Flatten to 1D feature vector
+            features = feature_set.flatten()
+            
+            return features
+            
+        except Exception as e:
+            logger.debug(f"Feature extraction error: {e}")
+            return np.array([])
+    
+    def create_lstm_model(self, input_shape):
+        """Create LSTM model for time series prediction"""
+        if not TENSORFLOW_AVAILABLE:
+            return None
+        
+        try:
+            model = Sequential([
+                LSTM(50, return_sequences=True, input_shape=input_shape),
+                Dropout(0.2),
+                LSTM(50, return_sequences=False),
+                Dropout(0.2),
+                Dense(25),
+                BatchNormalization(),
+                Dense(1)
+            ])
+            
+            model.compile(optimizer=Adam(learning_rate=0.001), loss='mse', metrics=['mae'])
+            return model
+            
+        except Exception as e:
+            logger.debug(f"LSTM model creation error: {e}")
+            return None
+    
+    def update_training_data(self, df: pd.DataFrame):
+        """Update training data with new market data"""
+        try:
+            if len(df) < self.lookback_window:
+                return
+            
+            features = self.extract_features(df)
+            if len(features) == 0:
+                return
+            
+            # Target: future price change (next 4 periods)
+            if len(df) >= self.prediction_horizon:
+                current_price = df['close'].iloc[-self.prediction_horizon]
+                future_price = df['close'].iloc[-1]
+                target = (future_price - current_price) / current_price
+                
+                self.feature_history.append(features)
+                self.target_history.append(target)
+                
+                # Retrain models periodically
+                if len(self.feature_history) >= self.training_size and len(self.feature_history) % 50 == 0:
+                    self._retrain_models()
+                    
+        except Exception as e:
+            logger.debug(f"Training data update error: {e}")
+    
+    def _retrain_models(self):
+        """Retrain all models with recent data"""
+        try:
+            if len(self.feature_history) < self.training_size:
+                return
+            
+            # Prepare training data
+            X = np.array(list(self.feature_history))
+            y = np.array(list(self.target_history))
+            
+            # Handle NaN values
+            mask = ~(np.isnan(X).any(axis=1) | np.isnan(y))
+            X = X[mask]
+            y = y[mask]
+            
+            if len(X) < 50:
+                return
+            
+            # Scale features
+            X_scaled = self.feature_scaler.fit_transform(X)
+            y_scaled = self.target_scaler.fit_transform(y.reshape(-1, 1)).flatten()
+            
+            # Time series split for validation
+            tscv = TimeSeriesSplit(n_splits=3)
+            
+            # Train traditional ML models
+            models = {
+                'rf': self.rf_model,
+                'xgb': self.xgb_model,
+                'gb': self.gb_model
+            }
+            
+            for name, model in models.items():
+                try:
+                    # Cross-validation performance
+                    scores = []
+                    for train_idx, val_idx in tscv.split(X_scaled):
+                        X_train, X_val = X_scaled[train_idx], X_scaled[val_idx]
+                        y_train, y_val = y_scaled[train_idx], y_scaled[val_idx]
+                        
+                        model.fit(X_train, y_train)
+                        y_pred = model.predict(X_val)
+                        score = -mean_squared_error(y_val, y_pred)  # Negative MSE for maximization
+                        scores.append(score)
+                    
+                    avg_score = np.mean(scores)
+                    self.performance_tracking[name].append(avg_score)
+                    
+                    # Final training on all data
+                    model.fit(X_scaled, y_scaled)
+                    
+                except Exception as e:
+                    logger.debug(f"Model {name} training error: {e}")
+            
+            # Train LSTM if available
+            if TENSORFLOW_AVAILABLE and not self.lstm_trained:
+                self._train_lstm_model(X_scaled, y_scaled)
+            
+            # Update model weights based on performance
+            self._update_model_weights()
+            
+            self.is_trained = True
+            logger.debug(f"🧠 Models retrained with {len(X)} samples")
+            
+        except Exception as e:
+            logger.debug(f"Model retraining error: {e}")
+    
+    def _train_lstm_model(self, X, y):
+        """Train LSTM model"""
+        try:
+            if len(X) < 100:  # Need more data for LSTM
+                return
+            
+            # Reshape for LSTM (samples, timesteps, features)
+            X_lstm = X.reshape(X.shape[0], 1, X.shape[1])
+            
+            if self.lstm_model is None:
+                self.lstm_model = self.create_lstm_model((1, X.shape[1]))
+            
+            if self.lstm_model is not None:
+                # Train with validation split
+                history = self.lstm_model.fit(
+                    X_lstm, y,
+                    epochs=20,
+                    batch_size=32,
+                    validation_split=0.2,
+                    verbose=0
+                )
+                
+                self.lstm_trained = True
+                self.model_weights['lstm'] = 0.2  # Enable LSTM in ensemble
+                logger.debug("🧠 LSTM model trained successfully")
+                
+        except Exception as e:
+            logger.debug(f"LSTM training error: {e}")
+    
+    def _update_model_weights(self):
+        """Update ensemble weights based on recent performance"""
+        try:
+            if not all(self.performance_tracking[name] for name in ['rf', 'xgb', 'gb']):
+                return
+            
+            # Get recent performance (last 5 scores)
+            recent_performance = {}
+            for name in ['rf', 'xgb', 'gb']:
+                scores = self.performance_tracking[name][-5:]
+                recent_performance[name] = np.mean(scores) if scores else -1
+            
+            # Softmax for weight calculation
+            scores = np.array(list(recent_performance.values()))
+            scores = scores - np.max(scores)  # Numerical stability
+            weights = np.exp(scores) / np.sum(np.exp(scores))
+            
+            # Update weights (excluding LSTM for now)
+            total_traditional = sum(weights)
+            self.model_weights['rf'] = weights[0] * 0.8  # 80% for traditional models
+            self.model_weights['xgb'] = weights[1] * 0.8
+            self.model_weights['gb'] = weights[2] * 0.8
+            # LSTM keeps its weight or 0 if not trained
+            
+            logger.debug(f"🧠 Model weights updated: {self.model_weights}")
+            
+        except Exception as e:
+            logger.debug(f"Weight update error: {e}")
+    
+    def predict_price_movement(self, df: pd.DataFrame) -> Dict[str, float]:
+        """Predict future price movement using ensemble"""
+        try:
+            if not self.is_trained or len(df) < self.lookback_window:
+                return {"prediction": 0.0, "confidence": 0.0, "direction": "NEUTRAL"}
+            
+            features = self.extract_features(df)
+            if len(features) == 0:
+                return {"prediction": 0.0, "confidence": 0.0, "direction": "NEUTRAL"}
+            
+            # Scale features
+            features_scaled = self.feature_scaler.transform(features.reshape(1, -1))
+            
+            # Get predictions from all models
+            predictions = {}
+            
+            try:
+                predictions['rf'] = self.rf_model.predict(features_scaled)[0]
+            except:
+                predictions['rf'] = 0.0
+            
+            try:
+                predictions['xgb'] = self.xgb_model.predict(features_scaled)[0]
+            except:
+                predictions['xgb'] = 0.0
+            
+            try:
+                predictions['gb'] = self.gb_model.predict(features_scaled)[0]
+            except:
+                predictions['gb'] = 0.0
+            
+            # LSTM prediction
+            if self.lstm_model is not None and self.lstm_trained:
+                try:
+                    features_lstm = features_scaled.reshape(1, 1, -1)
+                    predictions['lstm'] = self.lstm_model.predict(features_lstm, verbose=0)[0][0]
+                except:
+                    predictions['lstm'] = 0.0
+            else:
+                predictions['lstm'] = 0.0
+            
+            # Ensemble prediction
+            ensemble_prediction = sum(
+                predictions[model] * weight 
+                for model, weight in self.model_weights.items()
+            )
+            
+            # Scale back to original space
+            try:
+                ensemble_prediction = self.target_scaler.inverse_transform([[ensemble_prediction]])[0][0]
+            except:
+                pass  # Use unscaled prediction if scaler fails
+            
+            # Calculate confidence based on model agreement
+            pred_values = list(predictions.values())
+            confidence = 1.0 - (np.std(pred_values) / (np.mean(np.abs(pred_values)) + 1e-8))
+            confidence = max(0.0, min(1.0, confidence))
+            
+            # Determine direction
+            if ensemble_prediction > 0.005:  # > 0.5% positive
+                direction = "UP"
+            elif ensemble_prediction < -0.005:  # < -0.5% negative
+                direction = "DOWN"
+            else:
+                direction = "NEUTRAL"
+            
+            return {
+                "prediction": ensemble_prediction,
+                "confidence": confidence,
+                "direction": direction,
+                "individual_predictions": predictions,
+                "model_weights": self.model_weights.copy()
+            }
+            
+        except Exception as e:
+            logger.debug(f"ML prediction error: {e}")
+            return {"prediction": 0.0, "confidence": 0.0, "direction": "NEUTRAL"}
+    
+    def get_feature_importance(self) -> Dict[str, float]:
+        """Get feature importance from trained models"""
+        try:
+            if not self.is_trained:
+                return {}
+            
+            importance_dict = {}
+            
+            # Random Forest feature importance
+            if hasattr(self.rf_model, 'feature_importances_'):
+                rf_importance = self.rf_model.feature_importances_
+                importance_dict['rf'] = rf_importance.tolist()
+            
+            # XGBoost feature importance
+            if hasattr(self.xgb_model, 'feature_importances_'):
+                xgb_importance = self.xgb_model.feature_importances_
+                importance_dict['xgb'] = xgb_importance.tolist()
+            
+            return importance_dict
+            
+        except Exception as e:
+            logger.debug(f"Feature importance error: {e}")
+            return {}
+        
 
 class EnhancedMomentumStrategy:
     """🚀 PROFIT ENHANCED Momentum Strategy with Advanced Features"""
@@ -113,6 +501,16 @@ class EnhancedMomentumStrategy:
         self.position_entry_reasons = {}
         self.market_regime_cache = {"regime": "UNKNOWN", "timestamp": None, "confidence": 0.0}
         self.quality_score_history = []
+
+        # 🧠 ML PREDICTOR INTEGRATION
+        self.ml_predictor = AdvancedMLPredictor(
+            lookback_window=100,
+            prediction_horizon=4
+        )
+        self.ml_predictions_history = deque(maxlen=500)
+        self.ml_enabled = getattr(settings, 'MOMENTUM_ML_ENABLED', True)
+        
+        logger.info(f"🧠 ML Integration: {'ENABLED' if self.ml_enabled else 'DISABLED'}")
         
         # AI Provider with optimized parameters
         ai_param_overrides = self._create_ai_overrides()
@@ -709,6 +1107,16 @@ class EnhancedMomentumStrategy:
         market_regime = {"regime": "UNKNOWN", "confidence": 0.0}
         if indicators is not None and not indicators.empty:
             market_regime = self.detect_market_regime(indicators)
+            ml_prediction = self.get_ml_prediction(df)
+            sell_context.update({
+                "ml_prediction": ml_prediction,
+                "market_regime": market_regime
+        })
+        
+        # 🧠 CHECK ML-BASED EXIT SIGNALS (HIGH PRIORITY)
+        ml_exit_signal, ml_exit_reason = self.get_ml_exit_signal(position, df, ml_prediction)
+        if ml_exit_signal:
+            return True, ml_exit_reason, sell_context
             current_indicators = indicators.iloc[-1]
             sell_context["indicators"].update({
                 "rsi": current_indicators.get('rsi', 50),
@@ -832,10 +1240,13 @@ class EnhancedMomentumStrategy:
         
         # Market regime detection
         market_regime = self.detect_market_regime(indicators)
+        ml_prediction = self.get_ml_prediction(df)
+        buy_context["ml_prediction"] = ml_prediction
         buy_context["market_regime"] = market_regime
         
+        quality_score, score_breakdown = self.calculate_ml_enhanced_quality_score(indicators, market_regime, ml_prediction)
         # Enhanced quality scoring
-        quality_score, score_breakdown = self.calculate_enhanced_quality_score(indicators, market_regime)
+        
         buy_context.update({
             "quality_score": quality_score,
             "score_breakdown": score_breakdown,
@@ -989,12 +1400,236 @@ class EnhancedMomentumStrategy:
                         
                         logger.info(f"📥 ENHANCED BUY: {new_position.position_id} ${position_amount:.0f} "
                                   f"at ${current_price:.2f} SL=${stop_loss_price:.2f} - Q{quality_score} {regime}")
+
+            # 🧠 ML PERFORMANCE TRACKING
+            if hasattr(self, 'ml_predictor') and self.ml_enabled:
+                try:
+                    # Track ML prediction accuracy
+                    if len(self.ml_predictions_history) >= 5:
+                        self._track_ml_performance(current_price)
+                except Exception as e:
+                    logger.debug(f"ML performance tracking error: {e}")
                 
         except (KeyboardInterrupt, SystemExit):
             logger.info(f"🛑 [{self.strategy_name}] Enhanced strategy processing interrupted")
             raise
         except Exception as e:
             logger.error(f"[{self.strategy_name}] Enhanced process data error: {e}", exc_info=True)
+
+    def get_ml_prediction(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """🧠 Get ML-based price prediction"""
+        try:
+            if not self.ml_enabled:
+                return {"prediction": 0.0, "confidence": 0.0, "direction": "NEUTRAL", "enabled": False}
+            
+            # Update ML training data
+            self.ml_predictor.update_training_data(df)
+            
+            # Get prediction
+            ml_result = self.ml_predictor.predict_price_movement(df)
+            ml_result["enabled"] = True
+            
+            # Store prediction history
+            prediction_record = {
+                "timestamp": datetime.now(timezone.utc),
+                "prediction": ml_result["prediction"],
+                "confidence": ml_result["confidence"],
+                "direction": ml_result["direction"],
+                "current_price": df['close'].iloc[-1]
+            }
+            self.ml_predictions_history.append(prediction_record)
+            
+            return ml_result
+            
+        except Exception as e:
+            logger.debug(f"ML prediction error: {e}")
+            return {"prediction": 0.0, "confidence": 0.0, "direction": "NEUTRAL", "enabled": False}
+    
+    def calculate_ml_enhanced_quality_score(self, indicators: pd.DataFrame, 
+                                          market_regime: Dict[str, Any], 
+                                          ml_prediction: Dict[str, Any]) -> Tuple[int, Dict[str, Any]]:
+        """🎯 ML-Enhanced quality scoring system"""
+        # Get base quality score
+        base_score, score_breakdown = self.calculate_enhanced_quality_score(indicators, market_regime)
+        
+        if not ml_prediction.get("enabled", False):
+            return base_score, score_breakdown
+        
+        try:
+            ml_direction = ml_prediction.get("direction", "NEUTRAL")
+            ml_confidence = ml_prediction.get("confidence", 0.0)
+            ml_prediction_value = ml_prediction.get("prediction", 0.0)
+            
+            # ML Enhancement bonus (Max: 5 points)
+            ml_bonus = 0
+            
+            # Strong ML bullish signal
+            if ml_direction == "UP" and ml_confidence > 0.7 and ml_prediction_value > 0.01:
+                ml_bonus = 5
+                score_breakdown['ml_strong_bullish'] = 5
+            elif ml_direction == "UP" and ml_confidence > 0.5 and ml_prediction_value > 0.005:
+                ml_bonus = 3
+                score_breakdown['ml_moderate_bullish'] = 3
+            elif ml_direction == "UP" and ml_confidence > 0.3:
+                ml_bonus = 2
+                score_breakdown['ml_weak_bullish'] = 2
+            
+            # ML bearish penalty
+            elif ml_direction == "DOWN" and ml_confidence > 0.6:
+                ml_bonus = -3
+                score_breakdown['ml_bearish_penalty'] = -3
+            elif ml_direction == "DOWN" and ml_confidence > 0.4:
+                ml_bonus = -1
+                score_breakdown['ml_weak_bearish_penalty'] = -1
+            
+            # High confidence neutral (market uncertainty)
+            elif ml_direction == "NEUTRAL" and ml_confidence > 0.7:
+                ml_bonus = -2
+                score_breakdown['ml_uncertainty_penalty'] = -2
+            
+            enhanced_score = base_score + ml_bonus
+            enhanced_score = max(0, min(30, enhanced_score))  # Cap at 30 for ML-enhanced
+            
+            score_breakdown['ml_bonus'] = ml_bonus
+            score_breakdown['ml_confidence'] = ml_confidence
+            score_breakdown['ml_direction'] = ml_direction
+            score_breakdown['ml_prediction_value'] = ml_prediction_value
+            score_breakdown['enhanced_total'] = enhanced_score
+            
+            return enhanced_score, score_breakdown
+            
+        except Exception as e:
+            logger.debug(f"ML quality score enhancement error: {e}")
+            return base_score, score_breakdown
+
+    def get_ml_exit_signal(self, position: Position, df: pd.DataFrame, 
+                          ml_prediction: Dict[str, Any]) -> Tuple[bool, str]:
+        """🧠 ML-based exit signal analysis"""
+        try:
+            if not ml_prediction.get("enabled", False):
+                return False, "ML_DISABLED"
+            
+            ml_direction = ml_prediction.get("direction", "NEUTRAL")
+            ml_confidence = ml_prediction.get("confidence", 0.0)
+            ml_prediction_value = ml_prediction.get("prediction", 0.0)
+            
+            current_price = df['close'].iloc[-1]
+            position_profit_pct = ((current_price - position.entry_price) / position.entry_price) * 100
+            
+            # ML Exit Conditions
+            
+            # 1. Strong bearish ML signal with profit protection
+            if (ml_direction == "DOWN" and ml_confidence > 0.75 and 
+                ml_prediction_value < -0.01 and position_profit_pct > 1.0):
+                return True, f"ML_STRONG_BEARISH_EXIT_PROFIT_{position_profit_pct:.1f}%"
+            
+            # 2. Moderate bearish signal with substantial profit
+            if (ml_direction == "DOWN" and ml_confidence > 0.6 and 
+                position_profit_pct > 3.0):
+                return True, f"ML_BEARISH_EXIT_BIG_PROFIT_{position_profit_pct:.1f}%"
+            
+            # 3. ML trend reversal detection
+            if len(self.ml_predictions_history) >= 3:
+                recent_directions = [p["direction"] for p in list(self.ml_predictions_history)[-3:]]
+                if all(d == "DOWN" for d in recent_directions) and position_profit_pct > 0.5:
+                    return True, f"ML_TREND_REVERSAL_EXIT_PROFIT_{position_profit_pct:.1f}%"
+            
+            # 4. High confidence neutral signal (uncertainty increase)
+            if (ml_direction == "NEUTRAL" and ml_confidence > 0.8 and 
+                position_profit_pct > 2.0):
+                return True, f"ML_UNCERTAINTY_EXIT_PROFIT_{position_profit_pct:.1f}%"
+            
+            return False, "ML_HOLD"
+            
+        except Exception as e:
+            logger.debug(f"ML exit signal error: {e}")
+            return False, "ML_ERROR"
+
+    def _track_ml_performance(self, current_price: float):
+        """🧠 Track ML prediction accuracy"""
+        try:
+            if len(self.ml_predictions_history) < 5:
+                return
+            
+            # Check predictions from 4 periods ago (prediction horizon)
+            prediction_to_check = None
+            current_time = datetime.now(timezone.utc)
+            
+            for pred in self.ml_predictions_history:
+                pred_time = pred["timestamp"]
+                time_diff = (current_time - pred_time).total_seconds() / 60
+                
+                # Check prediction from ~60 minutes ago (4 * 15min bars)
+                if 55 <= time_diff <= 65:
+                    prediction_to_check = pred
+                    break
+            
+            if prediction_to_check is None:
+                return
+            
+            # Calculate actual price change
+            predicted_price = prediction_to_check["current_price"]
+            actual_change = (current_price - predicted_price) / predicted_price
+            predicted_change = prediction_to_check["prediction"]
+            
+            # Check prediction accuracy
+            prediction_error = abs(actual_change - predicted_change)
+            direction_correct = (
+                (actual_change > 0.005 and prediction_to_check["direction"] == "UP") or
+                (actual_change < -0.005 and prediction_to_check["direction"] == "DOWN") or
+                (abs(actual_change) <= 0.005 and prediction_to_check["direction"] == "NEUTRAL")
+            )
+            
+            # Log performance periodically
+            if len(self.ml_predictions_history) % 20 == 0:
+                logger.info(f"🧠 ML Performance Check: Error={prediction_error:.4f}, "
+                           f"Direction={'✅' if direction_correct else '❌'}, "
+                           f"Predicted={predicted_change:.4f}, Actual={actual_change:.4f}")
+            
+        except Exception as e:
+            logger.debug(f"ML performance tracking detailed error: {e}")
+
+    def get_ml_performance_summary(self) -> Dict[str, Any]:
+        """🧠 Get ML model performance summary"""
+        try:
+            if not hasattr(self, 'ml_predictor') or not self.ml_enabled:
+                return {"ml_enabled": False}
+            
+            feature_importance = self.ml_predictor.get_feature_importance()
+            model_weights = self.ml_predictor.model_weights.copy()
+            
+            performance_summary = {
+                "ml_enabled": True,
+                "is_trained": self.ml_predictor.is_trained,
+                "training_samples": len(self.ml_predictor.feature_history),
+                "prediction_history_size": len(self.ml_predictions_history),
+                "model_weights": model_weights,
+                "feature_importance_available": len(feature_importance) > 0,
+                "lstm_trained": getattr(self.ml_predictor, 'lstm_trained', False)
+            }
+            
+            # Add recent prediction summary
+            if len(self.ml_predictions_history) >= 10:
+                recent_predictions = list(self.ml_predictions_history)[-10:]
+                directions = [p["direction"] for p in recent_predictions]
+                confidences = [p["confidence"] for p in recent_predictions]
+                
+                performance_summary.update({
+                    "recent_direction_distribution": {
+                        "UP": directions.count("UP"),
+                        "DOWN": directions.count("DOWN"),
+                        "NEUTRAL": directions.count("NEUTRAL")
+                    },
+                    "avg_confidence_recent": sum(confidences) / len(confidences),
+                    "max_confidence_recent": max(confidences),
+                    "min_confidence_recent": min(confidences)
+                })
+            
+            return performance_summary
+            
+        except Exception as e:
+            logger.debug(f"ML performance summary error: {e}")
+            return {"ml_enabled": False, "error": str(e)}
 
 # Create an alias for backward compatibility
 MomentumStrategy = EnhancedMomentumStrategy
