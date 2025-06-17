@@ -1,4 +1,4 @@
-# backtest_runner.py - Enhanced Standalone & Optuna-Compatible Backtester
+# backtest_runner.py - Enhanced Standalone & Optuna-Compatible Backtester - FIXED VERSION
 
 import pandas as pd
 import asyncio
@@ -10,7 +10,6 @@ from typing import Optional, Dict, Any
 import optuna # KeyboardInterrupt'ı TrialPruned'a çevirmek için
 import os
 
-
 from utils.config import settings
 from utils.logger import logger, ensure_csv_header
 from utils.portfolio import Portfolio
@@ -21,7 +20,7 @@ import logging
 backtest_runner_logger = logging.getLogger("algobot.backtest_runner")
 
 class MomentumBacktester:
-    """Optuna ile uyumlu ve tek başına çalışabilen Momentum Backtester"""
+    """Optuna ile uyumlu ve tek başına çalışabilen Momentum Backtester - FIXED VERSION"""
 
     def __init__(self, 
                  csv_path: str, 
@@ -61,13 +60,47 @@ class MomentumBacktester:
         
         backtest_runner_logger.info(f"Backtester instance created for '{self.symbol}'")
 
-
-    # backtest_runner.py dosyasının içine, MomentumBacktester sınıfına eklenecek yeni metod
+    def extract_portfolio_values(self) -> pd.Series:
+        """🔧 FIXED: Extract numeric values from portfolio history - BULLETPROOF VERSION"""
+        try:
+            if hasattr(self.portfolio, 'portfolio_value_history') and self.portfolio.portfolio_value_history:
+                # Handle any possible format
+                values = []
+                for item in self.portfolio.portfolio_value_history:
+                    if isinstance(item, tuple) and len(item) >= 2:
+                        # Tuple format: (timestamp, value) or (time, value, extra)
+                        values.append(float(item[1]))
+                    elif isinstance(item, (int, float)):
+                        # Direct numeric value
+                        values.append(float(item))
+                    elif hasattr(item, '__float__'):
+                        # Any object that can be converted to float
+                        try:
+                            values.append(float(item))
+                        except (TypeError, ValueError):
+                            continue
+                    else:
+                        # Skip invalid entries
+                        backtest_runner_logger.debug(f"Skipping invalid portfolio history item: {type(item)}")
+                        continue
+                
+                if values:
+                    return pd.Series(values)
+                else:
+                    # Fallback: use initial capital
+                    backtest_runner_logger.warning("No valid portfolio values found, using initial capital")
+                    return pd.Series([float(self.initial_capital)])
+            else:
+                # No history available
+                backtest_runner_logger.info("No portfolio history available, using initial capital")
+                return pd.Series([float(self.initial_capital)])
+                
+        except Exception as e:
+            backtest_runner_logger.error(f"Portfolio history extraction error: {e}")
+            return pd.Series([float(self.initial_capital)])
 
     def calculate_performance_metrics(self, portfolio_history: pd.Series, closed_trades: list) -> dict:
-        """
-        Backtest sonunda detaylı performans metrikleri hesaplar.
-        """
+        """🔧 FIXED: Backtest sonunda detaylı performans metrikleri hesaplar"""
         if portfolio_history.empty or not closed_trades:
             return {
                 "max_drawdown_pct": 0.0,
@@ -77,46 +110,79 @@ class MomentumBacktester:
                 "avg_trade_duration_min": 0.0,
             }
 
-        # Maksimum Düşüş (Max Drawdown) Hesaplanması
-        peak = portfolio_history.expanding(min_periods=1).max()
-        drawdown = (portfolio_history - peak) / peak
-        max_drawdown_pct = abs(drawdown.min()) * 100
+        try:
+            # 🔧 FIXED: Ensure portfolio_history contains only numeric values
+            numeric_values = []
+            for val in portfolio_history:
+                try:
+                    numeric_values.append(float(val))
+                except (TypeError, ValueError):
+                    continue
+            
+            if not numeric_values:
+                backtest_runner_logger.warning("No numeric values in portfolio history")
+                return {
+                    "max_drawdown_pct": 0.0,
+                    "sortino_ratio": 0.0,
+                    "profit_factor": 0.0,
+                    "win_rate": 0.0,
+                    "avg_trade_duration_min": 0.0,
+                }
+            
+            # Create clean numeric series
+            clean_portfolio_history = pd.Series(numeric_values)
+            
+            # Maksimum Düşüş (Max Drawdown) Hesaplanması
+            peak = clean_portfolio_history.expanding(min_periods=1).max()
+            drawdown = (clean_portfolio_history - peak) / peak
+            max_drawdown_pct = abs(drawdown.min()) * 100
 
-        # Sortino Oranı Hesaplanması
-        daily_returns = portfolio_history.pct_change(1).dropna()
-        # Sadece negatif getirileri (kayıpları) dikkate al
-        downside_returns = daily_returns[daily_returns < 0]
-        downside_std = downside_returns.std()
-        
-        # Eğer hiç kayıp yoksa veya getiri yoksa Sortino tanımsız olur, 0 kabul et
-        if downside_std == 0 or daily_returns.mean() == 0:
-            sortino_ratio = 0.0
-        else:
-            # Yıllıklandırılmış Sortino Oranı (günlük veri için 365, saatlik için farklı)
-            # Bizim verimiz 15 dakikalık olduğu için, periyot sayısına göre ayarlayalım
-            # Günde 96 tane 15dk'lık bar var. Yıllık periyot = 96 * 365
-            annualization_factor = (96 * 365) ** 0.5 
-            sortino_ratio = (daily_returns.mean() / downside_std) * annualization_factor
+            # Sortino Oranı Hesaplanması
+            daily_returns = clean_portfolio_history.pct_change(1).dropna()
+            # Sadece negatif getirileri (kayıpları) dikkate al
+            downside_returns = daily_returns[daily_returns < 0]
+            downside_std = downside_returns.std()
+            
+            # Eğer hiç kayıp yoksa veya getiri yoksa Sortino tanımsız olur, 0 kabul et
+            if downside_std == 0 or daily_returns.mean() == 0:
+                sortino_ratio = 0.0
+            else:
+                # Yıllıklandırılmış Sortino Oranı (günlük veri için 365, saatlik için farklı)
+                # Bizim verimiz 15 dakikalık olduğu için, periyot sayısına göre ayarlayalım
+                # Günde 96 tane 15dk'lık bar var.
+                # Yıllık periyot = 96 * 365
+                annualization_factor = (96 * 365) ** 0.5 
+                sortino_ratio = (daily_returns.mean() / downside_std) * annualization_factor
 
-        # Kâr Faktörü (Profit Factor) ve Kazanma Oranı (Win Rate)
-        total_profit = sum(trade['pnl_usdt'] for trade in closed_trades if trade['pnl_usdt'] > 0)
-        total_loss = abs(sum(trade['pnl_usdt'] for trade in closed_trades if trade['pnl_usdt'] < 0))
-        
-        profit_factor = total_profit / total_loss if total_loss > 0 else 999.0 # Kayıp yoksa çok yüksek bir değer ata
-        
-        winning_trades = sum(1 for trade in closed_trades if trade['pnl_usdt'] > 0)
-        win_rate = (winning_trades / len(closed_trades)) * 100 if closed_trades else 0.0
-        
-        # Ortalama işlem süresi
-        avg_trade_duration_min = sum(trade.get('hold_duration_minutes', 0) for trade in closed_trades) / len(closed_trades) if closed_trades else 0.0
+            # Kâr Faktörü (Profit Factor) ve Kazanma Oranı (Win Rate)
+            total_profit = sum(trade['pnl_usdt'] for trade in closed_trades if trade['pnl_usdt'] > 0)
+            total_loss = abs(sum(trade['pnl_usdt'] for trade in closed_trades if trade['pnl_usdt'] < 0))
+            
+            profit_factor = total_profit / total_loss if total_loss > 0 else 999.0 # Kayıp yoksa çok yüksek bir değer ata
+            
+            winning_trades = sum(1 for trade in closed_trades if trade['pnl_usdt'] > 0)
+            win_rate = (winning_trades / len(closed_trades)) * 100 if closed_trades else 0.0
+            
+            # Ortalama işlem süresi
+            avg_trade_duration_min = sum(trade.get('hold_duration_minutes', 0) for trade in closed_trades) / len(closed_trades) if closed_trades else 0.0
 
-        return {
-            "max_drawdown_pct": round(max_drawdown_pct, 2),
-            "sortino_ratio": round(sortino_ratio, 2),
-            "profit_factor": round(profit_factor, 2),
-            "win_rate": round(win_rate, 2),
-            "avg_trade_duration_min": round(avg_trade_duration_min, 2),
-        }
+            return {
+                "max_drawdown_pct": round(max_drawdown_pct, 2),
+                "sortino_ratio": round(sortino_ratio, 2),
+                "profit_factor": round(profit_factor, 2),
+                "win_rate": round(win_rate, 2),
+                "avg_trade_duration_min": round(avg_trade_duration_min, 2),
+            }
+            
+        except Exception as e:
+            backtest_runner_logger.error(f"Performance metrics calculation error: {e}")
+            return {
+                "max_drawdown_pct": 0.0,
+                "sortino_ratio": 0.0,
+                "profit_factor": 0.0,
+                "win_rate": 0.0,
+                "avg_trade_duration_min": 0.0,
+            }
     
     def load_data(self) -> pd.DataFrame:
         backtest_runner_logger.info(f"Loading data from '{self.csv_path}' for period: {self.start_date_str or 'earliest'} to {self.end_date_str or 'latest'}")
@@ -140,7 +206,8 @@ class MomentumBacktester:
                 raise ValueError(f"Missing required columns {missing_cols}. Found: {df.columns.tolist()}")
 
             # Tarihe göre filtrele
-            if self.start_date_dt: df = df[df.index >= self.start_date_dt]
+            if self.start_date_dt: 
+                df = df[df.index >= self.start_date_dt]
             if self.end_date_dt:
                 end_filter = pd.Timestamp(self.end_date_dt).normalize() + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
                 df = df[df.index <= end_filter]
@@ -155,14 +222,13 @@ class MomentumBacktester:
             backtest_runner_logger.error(f"Failed to load/process data: {e}", exc_info=True)
             raise
 
-    # backtest_runner.py dosyasındaki run_backtest metodunu bununla değiştir.
     async def run_backtest(self) -> Dict[str, Any]:
+        """🔧 FIXED: Main backtest execution method"""
         backtest_runner_logger.info(f"Starting backtest run for {self.symbol}...")
     
         df = self.load_data()
         if df.empty:
-            # Önceki adımdaki calculate_performance_metrics'i burada da kullanabiliriz.
-            return self.calculate_performance_metrics(pd.Series(), [])
+            return self.calculate_performance_metrics(pd.Series([self.initial_capital]), [])
 
         self.total_bars = len(df)
         self.start_time = datetime.now()
@@ -172,18 +238,24 @@ class MomentumBacktester:
     
         if self.total_bars < self.lookback_window:
             backtest_runner_logger.error(f"Not enough data ({self.total_bars}) for lookback window ({self.lookback_window}).")
-            return self.calculate_performance_metrics(pd.Series(), [])
+            return self.calculate_performance_metrics(pd.Series([self.initial_capital]), [])
 
         backtest_runner_logger.info(f"Processing {self.total_bars - self.lookback_window:,} effective bars...")
 
-        # Portföy geçmişini izlemeye başla (yeni metrikler için gerekli)
+        # 🔧 FIXED: Portföy geçmişini izlemeye başla - consistent data types
         if hasattr(self.portfolio, 'portfolio_value_history'):
             # Portfolio value history var - başlangıç değerini ekle
             if not self.portfolio.portfolio_value_history:
-                self.portfolio.portfolio_value_history.append(self.portfolio.initial_capital_usdt)
+                # FIXED: Ensure consistent data type (float only)
+                self.portfolio.portfolio_value_history.append(float(self.portfolio.initial_capital_usdt))
+                if hasattr(self.portfolio, 'portfolio_timestamps'):
+                    self.portfolio.portfolio_timestamps.append(datetime.now(timezone.utc))
         else:
-            # Portfolio value history yok - varsayılan değer kullan
-            logger.debug("Portfolio value history not available, using default values")
+            # FIXED: Initialize with correct types
+            self.portfolio.portfolio_value_history = [float(self.portfolio.initial_capital_usdt)]
+            if not hasattr(self.portfolio, 'portfolio_timestamps'):
+                self.portfolio.portfolio_timestamps = [datetime.now(timezone.utc)]
+            backtest_runner_logger.debug("Portfolio value history initialized with default values")
         
         final_price = df['close'].iloc[-1]
         try:
@@ -195,7 +267,7 @@ class MomentumBacktester:
             
                 await self.strategy.process_data(data_window)
             
-                # YENİ EKLENEN SATIR: Her adımdan sonra portföy değerini kaydet
+                # Her adımdan sonra portföy değerini kaydet
                 self.portfolio.track_portfolio_value(final_price)
             
                 self.processed_bars += 1
@@ -215,13 +287,13 @@ class MomentumBacktester:
             results["error_in_backtest"] = str(e)
             return results
     
-        # ### --- SONUÇLARI DÖNDÜRME KISMI GÜNCELLENDİ --- ###
+        # 🔧 FIXED: ### --- SONUÇLARI DÖNDÜRME KISMI --- ###
     
         # 1. Portföyden temel özet bilgilerini al
         results = self.portfolio.get_performance_summary(final_price)
 
-        # 2. Adım 1.1'de eklediğimiz fonksiyonu kullanarak gelişmiş metrikleri hesapla
-        portfolio_history_series = pd.Series(self.portfolio.portfolio_value_history)
+        # 2. FIXED: Use bulletproof extraction method
+        portfolio_history_series = self.extract_portfolio_values()
         closed_trades_list = self.portfolio.get_closed_trades_for_summary()
         performance_stats = self.calculate_performance_metrics(portfolio_history_series, closed_trades_list)
 
@@ -233,8 +305,8 @@ class MomentumBacktester:
         # 4. Tüm metrikleri içeren birleştirilmiş sonuçları döndür
         return results
 
-
     async def _log_progress(self, current_time: datetime, current_price: float):
+        """Log backtest progress"""
         effective_total_bars = self.total_bars - self.lookback_window
         progress_pct = (self.processed_bars / effective_total_bars) * 100 if effective_total_bars > 0 else 100
         elapsed_time = datetime.now() - self.start_time
@@ -250,6 +322,7 @@ class MomentumBacktester:
 
 # Bu dosya doğrudan çalıştırıldığında kullanılacak ana fonksiyon
 async def standalone_backtest_main():
+    """Standalone backtest execution"""
     parser = argparse.ArgumentParser(description="Standalone Momentum Backtest Runner")
     parser.add_argument("--symbol", type=str, default=settings.SYMBOL)
     parser.add_argument("--timeframe", type=str, default=settings.TIMEFRAME)
@@ -309,7 +382,6 @@ async def standalone_backtest_main():
         logger.error(f"❌ Standalone backtest failed: {e}", exc_info=True)
     finally:
         settings.TRADES_CSV_LOG_PATH = original_csv_path
-
 
 if __name__ == "__main__":
     asyncio.run(standalone_backtest_main())

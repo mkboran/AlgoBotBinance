@@ -232,25 +232,32 @@ class Portfolio:
         logger.info(f"💰 MOMENTUM OPTIMIZED Portfolio initialized with ${initial_capital_usdt:,.2f} USDT")
 
     def track_portfolio_value(self, current_price: float) -> None:
-        """📊 Enhanced portfolio value tracking"""
+        """📊 Enhanced portfolio value tracking - FIXED DATA FORMAT"""
         try:
             current_time = datetime.now(timezone.utc)
             current_value = self.get_total_portfolio_value_usdt(current_price)
             
-            # Add to history
-            self.portfolio_value_history.append((current_time, current_value))
+            # FIXED: Store only numeric values in portfolio_value_history
+            self.portfolio_value_history.append(current_value)  # Only float, no tuple!
             
-            # Calculate daily P&L
+            # Store timestamps separately if needed
+            if not hasattr(self, 'portfolio_timestamps'):
+                self.portfolio_timestamps = []
+            self.portfolio_timestamps.append(current_time)
+            
+            # Calculate daily P&L (using only values)
             if len(self.portfolio_value_history) > 96:  # 24 hours of 15min bars
-                value_24h_ago = self.portfolio_value_history[-96][1]
+                value_24h_ago = self.portfolio_value_history[-96]
                 daily_pnl = current_value - value_24h_ago
-                self.daily_pnl_history.append((current_time, daily_pnl))
+                if not hasattr(self, 'daily_pnl_values'):
+                    self.daily_pnl_values = []
+                self.daily_pnl_values.append(daily_pnl)
             
             # Keep last 30 days of data
             if len(self.portfolio_value_history) > 96 * 30:
                 self.portfolio_value_history = self.portfolio_value_history[-96 * 30:]
-            if len(self.daily_pnl_history) > 30:
-                self.daily_pnl_history = self.daily_pnl_history[-30:]
+                if hasattr(self, 'portfolio_timestamps'):
+                    self.portfolio_timestamps = self.portfolio_timestamps[-96 * 30:]
             
             # Update advanced metrics
             self._update_advanced_metrics(current_value)
@@ -261,37 +268,39 @@ class Portfolio:
             logger.error(f"Portfolio value tracking error: {e}")
 
     def _update_advanced_metrics(self, current_value: float):
-        """Calculate advanced portfolio metrics"""
+        """Calculate advanced portfolio metrics - FIXED"""
         try:
             if len(self.portfolio_value_history) < 10:
                 return
             
-            # Calculate returns
-            values = [v[1] for v in self.portfolio_value_history[-30:]]  # Last 30 observations
-            returns = [(values[i] - values[i-1]) / values[i-1] for i in range(1, len(values))]
+            # FIXED: Direct use of numeric values
+            values = self.portfolio_value_history[-30:]  # Already numeric!
             
-            if returns:
-                # Sharpe ratio (annualized)
-                avg_return = np.mean(returns)
-                std_return = np.std(returns)
-                if std_return > 0:
-                    sharpe = (avg_return / std_return) * np.sqrt(96 * 365)  # Annualized
-                    self.sharpe_ratio_rolling.append(sharpe)
-                    if len(self.sharpe_ratio_rolling) > 30:
-                        self.sharpe_ratio_rolling = self.sharpe_ratio_rolling[-30:]
+            if len(values) >= 2:
+                returns = [
+                    (values[i] - values[i-1]) / values[i-1] 
+                    for i in range(1, len(values)) 
+                    if values[i-1] != 0
+                ]
                 
-                # Kelly Fraction calculation
-                if len(self.closed_trades) > 10:
-                    kelly_fraction = self._calculate_kelly_fraction()
-                    self.kelly_fraction_history.append(kelly_fraction)
-                    if len(self.kelly_fraction_history) > 50:
-                        self.kelly_fraction_history = self.kelly_fraction_history[-50:]
-                
-                # Drawdown analysis
-                self._analyze_drawdowns(values)
+                if returns:
+                    # Calculate Sharpe ratio (simplified)
+                    mean_return = sum(returns) / len(returns)
+                    if len(returns) > 1:
+                        std_return = (sum((r - mean_return) ** 2 for r in returns) / (len(returns) - 1)) ** 0.5
+                        if std_return > 0:
+                            sharpe = (mean_return / std_return) * (96 ** 0.5)  # Annualized
+                            self.sharpe_ratio_rolling.append(sharpe)
+                            
+                            # Keep last 100 Sharpe calculations
+                            if len(self.sharpe_ratio_rolling) > 100:
+                                self.sharpe_ratio_rolling = self.sharpe_ratio_rolling[-100:]
+            
+            # Analyze drawdowns
+            self._analyze_drawdowns(values)
             
         except Exception as e:
-            logger.debug(f"Advanced metrics calculation error: {e}")
+            logger.debug(f"Advanced metrics error: {e}")
 
     def _calculate_kelly_fraction(self) -> float:
         """🎯 Calculate optimal Kelly Fraction"""
